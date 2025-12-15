@@ -51,7 +51,7 @@ function getChordStepRange(index) {
   return { start, end };
 }
 
-function detectChordNameForRange(startStep, endStep) {
+function getPitchClassesForRange(startStep, endStep) {
   /** @type {Set<number>} */
   const pitchClasses = new Set();
 
@@ -63,18 +63,28 @@ function detectChordNameForRange(startStep, endStep) {
       }
     }
   }
+  return pitchClasses;
+}
 
-  if (pitchClasses.size === 0) return "";
+function detectChordCore(pitchClasses) {
+  if (pitchClasses.size === 0) {
+    return { name: "", rootPc: null, basePitchClasses: new Set() };
+  }
 
   const templates = [
-    { name: "maj7", intervals: [0, 4, 7, 11] },
-    { name: "7", intervals: [0, 4, 7, 10] },
-    { name: "m7", intervals: [0, 3, 7, 10] },
-    { name: "maj", intervals: [0, 4, 7] },
-    { name: "m", intervals: [0, 3, 7] },
-    { name: "dim", intervals: [0, 3, 6] },
-    { name: "sus2", intervals: [0, 2, 7] },
-    { name: "sus4", intervals: [0, 5, 7] },
+    // 4和音（優先的にマッチさせたいものを上に）
+    { name: "maj7", intervals: [0, 4, 7, 11] }, // CMaj7
+    { name: "mMaj7", intervals: [0, 3, 7, 11] }, // Cm(maj7)
+    { name: "7", intervals: [0, 4, 7, 10] }, // C7
+    { name: "m7b5", intervals: [0, 3, 6, 10] }, // Cm7(b5)
+    { name: "m7", intervals: [0, 3, 7, 10] }, // Cm7
+
+    // 3和音
+    { name: "maj", intervals: [0, 4, 7] }, // C
+    { name: "m", intervals: [0, 3, 7] }, // Cm
+    { name: "dim", intervals: [0, 3, 6] }, // Cdim
+    { name: "sus2", intervals: [0, 2, 7] }, // Csus2
+    { name: "sus4", intervals: [0, 5, 7] }, // Csus4
   ];
 
   let best = null;
@@ -103,7 +113,7 @@ function detectChordNameForRange(startStep, endStep) {
       const rel = (pc - rootPc + 12) % 12;
       switch (rel) {
         case 1:
-          tensions.push("b9");
+          tensions.push("b2");
           break;
         case 2:
           tensions.push("9");
@@ -115,10 +125,10 @@ function detectChordNameForRange(startStep, endStep) {
           tensions.push("11");
           break;
         case 6:
-          tensions.push("#11");
+          tensions.push("b5");
           break;
         case 8:
-          tensions.push("13");
+          tensions.push("#5");
           break;
         // それ以外の度数はテンション表記しない
       }
@@ -126,21 +136,159 @@ function detectChordNameForRange(startStep, endStep) {
 
     const baseName = PITCH_CLASS_NAMES[rootPc] + best.tmpl.name;
     if (tensions.length === 0) {
-      return baseName;
+      return { name: baseName, rootPc, basePitchClasses: baseIntervals };
     }
     // 重複を除き、簡単にソートして表記
     const uniqTensions = Array.from(new Set(tensions));
-    return `${baseName}(${uniqTensions.join(",")})`;
+    return {
+      name: `${baseName}(${uniqTensions.join(",")})`,
+      rootPc,
+      basePitchClasses: baseIntervals,
+    };
   }
 
   // うまく判定できない場合は、とりあえず一番低い音のルートだけ表示
   const pcs = Array.from(pitchClasses).sort((a, b) => a - b);
-  return PITCH_CLASS_NAMES[pcs[0]];
+  const rootPc = pcs[0];
+  return {
+    name: PITCH_CLASS_NAMES[rootPc],
+    rootPc,
+    basePitchClasses: new Set([rootPc]),
+  };
+}
+
+function detectChordNameForRange(startStep, endStep) {
+  const pcs = getPitchClassesForRange(startStep, endStep);
+  const analysis = detectChordCore(pcs);
+  return analysis.name;
 }
 
 function detectChordNameForIndex(index) {
   const { start, end } = getChordStepRange(index);
   return detectChordNameForRange(start, end);
+}
+
+function updateNoteDegrees() {
+  if (!pianorollEl) return;
+
+  // ステップごとに、そのステップを担当するコードのルートと構成音集合を紐づける
+  const stepRoot = new Array(TOTAL_STEPS).fill(null);
+  const stepBaseSet = new Array(TOTAL_STEPS).fill(null);
+
+  for (let i = 0; i < chords.length; i++) {
+    const { start, end } = getChordStepRange(i);
+    const pcs = getPitchClassesForRange(start, end);
+    const analysis = detectChordCore(pcs);
+    if (analysis.rootPc === null) continue;
+    for (let s = start; s < end && s < TOTAL_STEPS; s++) {
+      stepRoot[s] = analysis.rootPc;
+      stepBaseSet[s] = analysis.basePitchClasses;
+    }
+  }
+
+  const degreeClasses = [
+    "degree-1",
+    "degree-b2",
+    "degree-b3",
+    "degree-3",
+    "degree-5",
+    "degree-b5",
+    "degree-#5",
+    "degree-b7",
+    "degree-7",
+    "degree-9",
+    "degree-11",
+    "degree-13",
+  ];
+
+  const cells = pianorollEl.querySelectorAll(".cell");
+  cells.forEach((cell) => {
+    // 既存の度数ラベルをリセット
+    const existing = cell.querySelector(".note-degree");
+    if (existing) {
+      existing.remove();
+    }
+    degreeClasses.forEach((cls) => cell.classList.remove(cls));
+
+    if (!cell.classList.contains("active")) return;
+
+    const step = Number(cell.dataset.step);
+    const pitchIndex = Number(cell.dataset.pitch);
+    const rootPc = stepRoot[step];
+    const baseSet = stepBaseSet[step];
+    if (rootPc == null || !baseSet) return;
+
+    const midi = BASE_MIDI_NOTE - 12 + pitchIndex;
+    const pc = midi % 12;
+    const rel = (pc - rootPc + 12) % 12;
+
+    /** @type {string | null} */
+    let label = null;
+    /** @type {string | null} */
+    let cls = null;
+
+    switch (rel) {
+      case 0:
+        label = "1";
+        cls = "degree-1";
+        break;
+      case 1:
+        label = "b2";
+        cls = "degree-b2";
+        break;
+      case 3:
+        label = "b3";
+        cls = "degree-b3";
+        break;
+      case 4:
+        label = "3";
+        cls = "degree-3";
+        break;
+      case 7:
+        label = "5";
+        cls = "degree-5";
+        break;
+      case 6:
+        label = "b5";
+        cls = "degree-b5";
+        break;
+      case 8:
+        label = "#5";
+        cls = "degree-#5";
+        break;
+      case 10:
+        label = "b7";
+        cls = "degree-b7";
+        break;
+      case 11:
+        label = "7";
+        cls = "degree-7";
+        break;
+      case 2:
+        label = "9";
+        cls = "degree-9";
+        break;
+      case 5:
+        label = "11";
+        cls = "degree-11";
+        break;
+      case 9:
+        label = "13";
+        cls = "degree-13";
+        break;
+      default:
+        // その他の度数はラベルなし
+        break;
+    }
+
+    if (!label || !cls) return;
+
+    const span = document.createElement("span");
+    span.className = "note-degree";
+    span.textContent = label;
+    cell.appendChild(span);
+    cell.classList.add(cls);
+  });
 }
 
 function renderChordTrack() {
@@ -276,6 +424,9 @@ function renderChordTrack() {
 
     chordTrackEl.appendChild(segment);
   });
+
+  // コード分析に基づいてノート上の度数ラベル＆色を更新
+  updateNoteDegrees();
 }
 
 // --- パターン初期化 ---
@@ -350,6 +501,17 @@ function createPianoRoll() {
 
         // ノート変更時にコードネームも更新
         renderChordTrack();
+      });
+
+      // マウスオーバーで「入力されているノートのみ」試聴
+      cell.addEventListener("mouseenter", () => {
+        const p = Number(cell.dataset.pitch);
+        const s = Number(cell.dataset.step);
+        if (!pattern[p][s]) return; // ノートが無いセルでは鳴らさない
+        ensureAudioContext();
+        if (audioCtx) {
+          playNoteAtTime(p, audioCtx.currentTime + 0.001);
+        }
       });
 
       pianorollEl.appendChild(cell);

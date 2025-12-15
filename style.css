@@ -260,6 +260,116 @@ button:disabled {
   box-shadow: 0 0 8px rgba(56, 189, 248, 0.9);
 }
 
+/* コード度数ラベル（1, b2, b3, 3, 5, b5, #5, b7, 7, 9, 11, 13 など） */
+.note-degree {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6rem;
+  font-weight: 600;
+  color: #e5e7eb;
+  text-shadow: 0 0 4px rgba(15, 23, 42, 0.9);
+  pointer-events: none;
+}
+
+.degree-1 .note-degree {
+  color: #f9fafb;
+}
+
+.cell.active.degree-1 {
+  background: radial-gradient(circle at 30% 20%, #e5e7eb 0, #d1d5db 35%, #9ca3af 100%);
+}
+
+.degree-b2 .note-degree {
+  color: #fde68a;
+}
+
+.cell.active.degree-b2 {
+  background: radial-gradient(circle at 30% 20%, #fef3c7 0, #facc15 35%, #b45309 100%);
+}
+
+.degree-b3 .note-degree {
+  color: #fecaca;
+}
+
+.cell.active.degree-b3 {
+  background: radial-gradient(circle at 30% 20%, #fee2e2 0, #fca5a5 35%, #b91c1c 100%);
+}
+
+.degree-3 .note-degree {
+  color: #a7f3d0;
+}
+
+.cell.active.degree-3 {
+  background: radial-gradient(circle at 30% 20%, #a7f3d0 0, #34d399 35%, #059669 100%);
+}
+
+.degree-5 .note-degree {
+  color: #bfdbfe;
+}
+
+.cell.active.degree-5 {
+  background: radial-gradient(circle at 30% 20%, #bfdbfe 0, #60a5fa 35%, #1d4ed8 100%);
+}
+
+.degree-b5 .note-degree {
+  color: #fbbf24;
+}
+
+.cell.active.degree-b5 {
+  background: radial-gradient(circle at 30% 20%, #fef3c7 0, #fbbf24 35%, #d97706 100%);
+}
+
+.degree-#5 .note-degree {
+  color: #fb7185;
+}
+
+.cell.active.degree-#5 {
+  background: radial-gradient(circle at 30% 20%, #ffe4e6 0, #fb7185 35%, #be123c 100%);
+}
+
+.degree-b7 .note-degree {
+  color: #fbbf24;
+}
+
+.cell.active.degree-b7 {
+  background: radial-gradient(circle at 30% 20%, #fef3c7 0, #fbbf24 35%, #b45309 100%);
+}
+
+.degree-7 .note-degree {
+  color: #fde68a;
+}
+
+.cell.active.degree-7 {
+  background: radial-gradient(circle at 30% 20%, #fef9c3 0, #facc15 35%, #a16207 100%);
+}
+
+.degree-9 .note-degree {
+  color: #f97316;
+}
+
+.cell.active.degree-9 {
+  background: radial-gradient(circle at 30% 20%, #fed7aa 0, #fb923c 35%, #c2410c 100%);
+}
+
+.degree-11 .note-degree {
+  color: #34d399;
+}
+
+.cell.active.degree-11 {
+  background: radial-gradient(circle at 30% 20%, #a7f3d0 0, #34d399 35%, #059669 100%);
+}
+
+.degree-13 .note-degree {
+  color: #38bdf8;
+}
+
+.cell.active.degree-13 {
+  background: radial-gradient(circle at 30% 20%, #bae6fd 0, #38bdf8 35%, #0369a1 100%);
+}
+
 .cell.playing {
   outline: 2px solid rgba(248, 250, 252, 0.8);
   outline-offset: -2px;
