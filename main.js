@@ -30,15 +30,118 @@ const playheadEl = document.getElementById("playhead");
 const chordTrackEl = document.getElementById("chord-track");
 
 // コードネーム用のデータ（ステップ数で長さを管理・合計でTOTAL_STEPSになる）
-/** @type {{ name: string; lengthSteps: number }[]} */
+/** @type {{ lengthSteps: number }[]} */
 let chords = [
-  { name: "", lengthSteps: STEPS_PER_BAR },
-  { name: "", lengthSteps: STEPS_PER_BAR },
-  { name: "", lengthSteps: STEPS_PER_BAR },
-  { name: "", lengthSteps: STEPS_PER_BAR },
+  { lengthSteps: STEPS_PER_BAR },
+  { lengthSteps: STEPS_PER_BAR },
+  { lengthSteps: STEPS_PER_BAR },
+  { lengthSteps: STEPS_PER_BAR },
 ];
 
 const MIN_CHORD_STEPS = 4; // 最小長さ（16分音符4つ = 1拍）くらいに制限
+
+const PITCH_CLASS_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+
+function getChordStepRange(index) {
+  let start = 0;
+  for (let i = 0; i < index; i++) {
+    start += chords[i].lengthSteps;
+  }
+  const end = start + chords[index].lengthSteps;
+  return { start, end };
+}
+
+function detectChordNameForRange(startStep, endStep) {
+  /** @type {Set<number>} */
+  const pitchClasses = new Set();
+
+  for (let p = 0; p < TOTAL_PITCHES; p++) {
+    for (let s = startStep; s < endStep; s++) {
+      if (pattern[p][s]) {
+        const midi = BASE_MIDI_NOTE - 12 + p;
+        pitchClasses.add(midi % 12);
+      }
+    }
+  }
+
+  if (pitchClasses.size === 0) return "";
+
+  const templates = [
+    { name: "maj7", intervals: [0, 4, 7, 11] },
+    { name: "7", intervals: [0, 4, 7, 10] },
+    { name: "m7", intervals: [0, 3, 7, 10] },
+    { name: "maj", intervals: [0, 4, 7] },
+    { name: "m", intervals: [0, 3, 7] },
+    { name: "dim", intervals: [0, 3, 6] },
+    { name: "sus2", intervals: [0, 2, 7] },
+    { name: "sus4", intervals: [0, 5, 7] },
+  ];
+
+  let best = null;
+
+  for (let rootPc = 0; rootPc < 12; rootPc++) {
+    for (const tmpl of templates) {
+      const ok = tmpl.intervals.every((iv) => pitchClasses.has((rootPc + iv) % 12));
+      if (ok) {
+        const score = tmpl.intervals.length;
+        if (!best || score > best.score) {
+          best = { rootPc, tmpl, score };
+        }
+      }
+    }
+  }
+
+  if (best) {
+    const rootPc = best.rootPc;
+    const baseIntervals = new Set(best.tmpl.intervals.map((iv) => ((rootPc + iv) % 12)));
+
+    /** @type {string[]} */
+    const tensions = [];
+
+    pitchClasses.forEach((pc) => {
+      if (baseIntervals.has(pc)) return;
+      const rel = (pc - rootPc + 12) % 12;
+      switch (rel) {
+        case 1:
+          tensions.push("b9");
+          break;
+        case 2:
+          tensions.push("9");
+          break;
+        case 3:
+          tensions.push("#9");
+          break;
+        case 5:
+          tensions.push("11");
+          break;
+        case 6:
+          tensions.push("#11");
+          break;
+        case 8:
+          tensions.push("13");
+          break;
+        // それ以外の度数はテンション表記しない
+      }
+    });
+
+    const baseName = PITCH_CLASS_NAMES[rootPc] + best.tmpl.name;
+    if (tensions.length === 0) {
+      return baseName;
+    }
+    // 重複を除き、簡単にソートして表記
+    const uniqTensions = Array.from(new Set(tensions));
+    return `${baseName}(${uniqTensions.join(",")})`;
+  }
+
+  // うまく判定できない場合は、とりあえず一番低い音のルートだけ表示
+  const pcs = Array.from(pitchClasses).sort((a, b) => a - b);
+  return PITCH_CLASS_NAMES[pcs[0]];
+}
+
+function detectChordNameForIndex(index) {
+  const { start, end } = getChordStepRange(index);
+  return detectChordNameForRange(start, end);
+}
 
 function renderChordTrack() {
   if (!chordTrackEl) return;
@@ -52,11 +155,9 @@ function renderChordTrack() {
     const input = document.createElement("input");
     input.className = "chord-input";
     input.type = "text";
-    input.placeholder = "例: Cmaj7";
-    input.value = chord.name;
-    input.addEventListener("input", () => {
-      chords[index].name = input.value;
-    });
+    input.readOnly = true;
+    input.placeholder = "検出なし";
+    input.value = detectChordNameForIndex(index);
 
     segment.appendChild(input);
 
@@ -188,6 +289,9 @@ function createPianoRoll() {
             playNoteAtTime(p, audioCtx.currentTime + 0.001);
           }
         }
+
+        // ノート変更時にコードネームも更新
+        renderChordTrack();
       });
 
       pianorollEl.appendChild(cell);
