@@ -161,8 +161,9 @@ function renderChordTrack() {
 
     segment.appendChild(input);
 
-    // 右端の境界をドラッグして長さ調整（最後のセグメント以外）
+    // 右端の境界をドラッグして長さ調整
     if (index < chords.length - 1) {
+      // 中間〜先頭側：左右の既存セグメント間で長さをやりくり
       const handle = document.createElement("div");
       handle.className = "chord-handle";
 
@@ -207,6 +208,63 @@ function renderChordTrack() {
         function onMouseUp() {
           window.removeEventListener("mousemove", onMouseMove);
           window.removeEventListener("mouseup", onMouseUp);
+        }
+
+        window.addEventListener("mousemove", onMouseMove);
+        window.addEventListener("mouseup", onMouseUp);
+      });
+
+      segment.appendChild(handle);
+    } else {
+      // 一番右端のセグメント：左へドラッグしたときに右側へ新しい要素を追加する
+      const handle = document.createElement("div");
+      handle.className = "chord-handle";
+
+      handle.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        const trackRect = chordTrackEl.getBoundingClientRect();
+        const startX = e.clientX;
+        const startLen = chords[index].lengthSteps;
+        const pixelsPerStep = trackRect.width / TOTAL_STEPS;
+        let lastDeltaSteps = 0;
+
+        function onMouseMove(ev) {
+          const deltaPx = ev.clientX - startX;
+          const rawSteps = deltaPx / pixelsPerStep;
+          lastDeltaSteps = Math.round(rawSteps);
+        }
+
+        function onMouseUp() {
+          window.removeEventListener("mousemove", onMouseMove);
+          window.removeEventListener("mouseup", onMouseUp);
+
+          // 左方向に十分ドラッグされた場合のみ分割する
+          if (lastDeltaSteps >= -1) {
+            return;
+          }
+
+          let newLeft = startLen + lastDeltaSteps;
+          // 右に新しく作るぶん
+          let newRight = startLen - newLeft;
+
+          // それぞれ最小長さを確保
+          if (newLeft < MIN_CHORD_STEPS) {
+            newLeft = MIN_CHORD_STEPS;
+            newRight = startLen - newLeft;
+          }
+          if (newRight < MIN_CHORD_STEPS) {
+            newRight = MIN_CHORD_STEPS;
+            newLeft = startLen - newRight;
+          }
+
+          // まだ足りない場合やおかしなドラッグは無視
+          if (newLeft < MIN_CHORD_STEPS || newRight < MIN_CHORD_STEPS) {
+            return;
+          }
+
+          chords[index].lengthSteps = newLeft;
+          chords.splice(index + 1, 0, { lengthSteps: newRight });
+          renderChordTrack();
         }
 
         window.addEventListener("mousemove", onMouseMove);
