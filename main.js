@@ -80,6 +80,47 @@ function getChordStepRange(index) {
   return { start, end };
 }
 
+function getFirstNoteLabel() {
+  // 最初の8音（ユニークなピッチクラス）までを含めて返す。なければ空文字。
+  /** @type {Set<string>} */
+  const pitchClassNames = new Set();
+  const MAX_NOTES = 8;
+  
+  // ステップ0から順に走査して、新しいピッチクラスが見つかったら追加（最大8個まで）
+  for (let s = 0; s < TOTAL_STEPS && pitchClassNames.size < MAX_NOTES; s++) {
+    for (let p = 0; p < TOTAL_PITCHES && pitchClassNames.size < MAX_NOTES; p++) {
+      if (pattern[p] && pattern[p][s]) {
+        const midi = BASE_MIDI_NOTE - 12 + p;
+        const label = midiToLabel(midi);
+        // オクターブ番号を除いてピッチクラス名だけを取得（例: "C4" → "C", "C#4" → "C#"）
+        const pitchClass = label.replace(/\d+$/, "");
+        if (!pitchClassNames.has(pitchClass)) {
+          pitchClassNames.add(pitchClass);
+          // 8個集まったら終了
+          if (pitchClassNames.size >= MAX_NOTES) {
+            break;
+          }
+        }
+      }
+    }
+  }
+  
+  if (pitchClassNames.size === 0) {
+    return "";
+  }
+  
+  // ピッチクラス名をソート（C, C#, D, D#, E, F, F#, G, G#, A, A#, B の順）
+  const sorted = Array.from(pitchClassNames).sort((a, b) => {
+    const order = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    const idxA = order.indexOf(a);
+    const idxB = order.indexOf(b);
+    return idxA - idxB;
+  });
+  
+  // ハイフンで結合（例: "C-E-G"）
+  return sorted.join("-");
+}
+
 function clonePattern(src) {
   const result = [];
   for (let p = 0; p < TOTAL_PITCHES; p++) {
@@ -252,13 +293,14 @@ if (displayModeSelect) {
 if (flipVertBtn) {
   flipVertBtn.addEventListener("click", () => {
     const selected = getSelectedNotePositions();
-    if (!selected.length) {
-      alert("まず矩形選択でノートを選んでください。");
+    const target = selected.length ? selected : getAllNotePositions();
+    if (!target.length) {
+      alert("ノートがありません。");
       return;
     }
-    const minPitch = Math.min(...selected.map((n) => n.p));
-    const maxPitch = Math.max(...selected.map((n) => n.p));
-    applyTransformToSelection(({ p, s }) => ({
+    const minPitch = Math.min(...target.map((n) => n.p));
+    const maxPitch = Math.max(...target.map((n) => n.p));
+    applyTransformToNotes(target, ({ p, s }) => ({
       p: maxPitch - (p - minPitch),
       s,
     }));
@@ -268,13 +310,14 @@ if (flipVertBtn) {
 if (flipHorizBtn) {
   flipHorizBtn.addEventListener("click", () => {
     const selected = getSelectedNotePositions();
-    if (!selected.length) {
-      alert("まず矩形選択でノートを選んでください。");
+    const target = selected.length ? selected : getAllNotePositions();
+    if (!target.length) {
+      alert("ノートがありません。");
       return;
     }
-    const minStep = Math.min(...selected.map((n) => n.s));
-    const maxStep = Math.max(...selected.map((n) => n.s));
-    applyTransformToSelection(({ p, s }) => ({
+    const minStep = Math.min(...target.map((n) => n.s));
+    const maxStep = Math.max(...target.map((n) => n.s));
+    applyTransformToNotes(target, ({ p, s }) => ({
       p,
       s: maxStep - (s - minStep),
     }));
@@ -284,13 +327,14 @@ if (flipHorizBtn) {
 if (randVertBtn) {
   randVertBtn.addEventListener("click", () => {
     const selected = getSelectedNotePositions();
-    if (!selected.length) {
-      alert("まず矩形選択でノートを選んでください。");
+    const target = selected.length ? selected : getAllNotePositions();
+    if (!target.length) {
+      alert("ノートがありません。");
       return;
     }
-    const minPitch = Math.min(...selected.map((n) => n.p));
-    const maxPitch = Math.max(...selected.map((n) => n.p));
-    applyTransformToSelection(({ p, s }) => ({
+    const minPitch = Math.min(...target.map((n) => n.p));
+    const maxPitch = Math.max(...target.map((n) => n.p));
+    applyTransformToNotes(target, ({ p, s }) => ({
       p: minPitch + Math.floor(Math.random() * (maxPitch - minPitch + 1)),
       s,
     }));
@@ -300,13 +344,14 @@ if (randVertBtn) {
 if (randHorizBtn) {
   randHorizBtn.addEventListener("click", () => {
     const selected = getSelectedNotePositions();
-    if (!selected.length) {
-      alert("まず矩形選択でノートを選んでください。");
+    const target = selected.length ? selected : getAllNotePositions();
+    if (!target.length) {
+      alert("ノートがありません。");
       return;
     }
-    const minStep = Math.min(...selected.map((n) => n.s));
-    const maxStep = Math.max(...selected.map((n) => n.s));
-    applyTransformToSelection(({ p, s }) => ({
+    const minStep = Math.min(...target.map((n) => n.s));
+    const maxStep = Math.max(...target.map((n) => n.s));
+    applyTransformToNotes(target, ({ p, s }) => ({
       p,
       s: minStep + Math.floor(Math.random() * (maxStep - minStep + 1)),
     }));
@@ -316,11 +361,12 @@ if (randHorizBtn) {
 if (smoothBtn) {
   smoothBtn.addEventListener("click", () => {
     const selected = getSelectedNotePositions();
-    if (!selected.length) {
-      alert("まず矩形選択でノートを選んでください。");
+    const target = selected.length ? selected : getAllNotePositions();
+    if (!target.length) {
+      alert("ノートがありません。");
       return;
     }
-    const steps = Array.from(new Set(selected.map((n) => n.s))).sort((a, b) => a - b);
+    const steps = Array.from(new Set(target.map((n) => n.s))).sort((a, b) => a - b);
     if (steps.length < 2) {
       alert("なめらかにするには、時間方向に2ステップ以上のノートが必要です。");
       return;
@@ -329,7 +375,7 @@ if (smoothBtn) {
     // 各ステップの平均ピッチを求める
     const stepToAvgPitch = new Map();
     steps.forEach((s) => {
-      const ps = selected.filter((n) => n.s === s).map((n) => n.p);
+      const ps = target.filter((n) => n.s === s).map((n) => n.p);
       const avg = ps.reduce((a, b) => a + b, 0) / ps.length;
       stepToAvgPitch.set(s, avg);
     });
@@ -348,7 +394,7 @@ if (smoothBtn) {
       stepToSmoothPitch.set(s, Math.max(0, Math.min(TOTAL_PITCHES - 1, p)));
     });
 
-    applyTransformToSelection(({ p, s }) => {
+    applyTransformToNotes(target, ({ p, s }) => {
       const smoothP = stepToSmoothPitch.get(s);
       if (smoothP == null) return { p, s };
       return { p: smoothP, s };
@@ -584,17 +630,26 @@ function getSelectedNotePositions() {
   return result;
 }
 
+function getAllNotePositions() {
+  /** @type {{ p: number; s: number }[]} */
+  const result = [];
+  for (let p = 0; p < TOTAL_PITCHES; p++) {
+    for (let s = 0; s < TOTAL_STEPS; s++) {
+      if (pattern[p] && pattern[p][s]) {
+        result.push({ p, s });
+      }
+    }
+  }
+  return result;
+}
+
 /**
- * 選択されているノートに対して変換関数を適用し、pattern と UI を更新するヘルパー
+ * 任意のノート集合に対して変換関数を適用し、pattern と UI を更新するヘルパー
+ * @param {{ p: number; s: number }[]} notes
  * @param {(note: { p: number; s: number }) => { p: number; s: number } | null} transformFn
  */
-function applyTransformToSelection(transformFn) {
-  const selected = getSelectedNotePositions();
-  if (!selected.length) {
-    alert("まず矩形選択でノートを選んでください。");
-    return;
-  }
-
+function applyTransformToNotes(notes, transformFn) {
+  if (!notes.length) return;
   pushHistory();
 
   const newPattern = [];
@@ -608,7 +663,7 @@ function applyTransformToSelection(transformFn) {
   /** @type {{ p: number; s: number }[]} */
   const newPositions = [];
 
-  selected.forEach(({ p, s }) => {
+  notes.forEach(({ p, s }) => {
     const mapped = transformFn({ p, s });
     if (!mapped) return;
     const np = mapped.p;
@@ -641,6 +696,15 @@ function applyTransformToSelection(transformFn) {
 
   // コードと度数ラベルを更新
   renderChordTrack();
+}
+
+/**
+ * 矩形選択されているノート（なければ空）を対象に変換を適用するヘルパー
+ * @param {(note: { p: number; s: number }) => { p: number; s: number } | null} transformFn
+ */
+function applyTransformToSelection(transformFn) {
+  const selected = getSelectedNotePositions();
+  applyTransformToNotes(selected, transformFn);
 }
 
 function renderChordTrack() {
@@ -1248,10 +1312,15 @@ async function renderToWav() {
   const rendered = await offlineCtx.startRendering();
   const wavBlob = audioBufferToWavBlob(rendered);
 
+  // 先頭ノート名をファイル名にする（なければデフォルト名）
+  const firstNoteLabel = getFirstNoteLabel();
+  const safeLabel = firstNoteLabel ? firstNoteLabel.replace(/[^a-zA-Z0-9_#-]/g, "_") : "tiny-sequence";
+  const filename = `${safeLabel}.wav`;
+
   const url = URL.createObjectURL(wavBlob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "tiny-sequence.wav";
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
