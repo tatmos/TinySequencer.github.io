@@ -1,0 +1,227 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #050816;
+  color: #f9fafb;
+}
+
+.app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.app-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.app-header h1 {
+  font-size: 1.4rem;
+  margin: 0;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.9rem;
+}
+
+input[type="number"] {
+  width: 72px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid #4b5563;
+  background: #111827;
+  color: #f9fafb;
+}
+
+button {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  background: linear-gradient(135deg, #4f46e5, #06b6d4);
+  color: white;
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.7);
+  transition: transform 0.08s ease, box-shadow 0.08s ease, opacity 0.2s ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.9);
+}
+
+button:active {
+  transform: translateY(1px) scale(0.98);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.7);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+  box-shadow: none;
+}
+
+.main {
+  border-radius: 12px;
+  padding: 12px;
+  background: radial-gradient(circle at top, #111827, #020617);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.9);
+}
+
+.pianoroll-container {
+  position: relative;
+  overflow-y: auto;
+  overflow-x: auto;
+  max-height: 520px;
+}
+
+.pianoroll-header {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  color: #9ca3af;
+  font-size: 0.7rem;
+  margin-bottom: 4px;
+}
+
+.pitch-label-col {
+  width: 64px;
+}
+
+.measures {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.measure-label {
+  text-align: center;
+  padding-bottom: 2px;
+}
+
+.pianoroll {
+  position: relative;
+  display: grid;
+  /* 4小節 × 16分 = 64ステップ。横幅に合わせて伸縮させる */
+  grid-template-columns: 64px repeat(64, minmax(14px, 1fr));
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #1f2937;
+  background: linear-gradient(180deg, #020617, #020617 40%, #0f172a);
+}
+
+.pitch-label {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 2px 6px;
+  font-size: 0.7rem;
+  color: #9ca3af;
+  background: #020617;
+  border-bottom: 1px solid #111827;
+}
+
+.cell {
+  /* 横幅はグリッドに任せる。狭い画面では縮み、広い画面では伸びる */
+  width: auto;
+  min-width: 14px;
+  height: 18px;
+  border-right: 1px solid rgba(55, 65, 81, 0.6);
+  border-bottom: 1px solid rgba(31, 41, 55, 0.9);
+  background: radial-gradient(circle at 30% 20%, #020617 0, #020617 40%, #020617 100%);
+  cursor: pointer;
+  position: relative;
+  transition: background 0.08s ease, box-shadow 0.08s ease;
+}
+
+.cell.beat-strong {
+  background: radial-gradient(circle at 30% 20%, #020617 0, #020617 40%, #020617 100%);
+  box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.2);
+}
+
+/* 小節ごとの背景色（偶数/奇数小節でうっすら変える） */
+.cell.bar-even {
+  background-color: rgba(15, 23, 42, 0.9);
+}
+
+.cell.bar-odd {
+  background-color: rgba(30, 64, 175, 0.14);
+}
+
+.cell:nth-child(4n + 0) {
+  /* 微妙な縦グリッドアクセント */
+  box-shadow: inset -1px 0 0 rgba(148, 163, 184, 0.12);
+}
+
+.cell.active {
+  background: radial-gradient(circle at 30% 20%, #22d3ee 0, #0ea5e9 35%, #6366f1 100%);
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.9);
+}
+
+.cell.playing {
+  outline: 2px solid rgba(248, 250, 252, 0.8);
+  outline-offset: -2px;
+}
+
+.playhead {
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 2px;
+  height: 100%;
+  background: linear-gradient(180deg, #f97316, #facc15);
+  opacity: 0;
+  box-shadow: 0 0 10px rgba(251, 191, 36, 0.8);
+  transition: opacity 0.15s ease;
+}
+
+.serial-section {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(31, 41, 55, 0.8);
+}
+
+.serial-title {
+  font-size: 0.9rem;
+  margin: 0 0 6px;
+  color: #e5e7eb;
+}
+
+.serial-controls {
+  margin-bottom: 6px;
+}
+
+.serial-textarea {
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
+  border-radius: 6px;
+  border: 1px solid #4b5563;
+  background: #020617;
+  color: #e5e7eb;
+  padding: 6px 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+    monospace;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+

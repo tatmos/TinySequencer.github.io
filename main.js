@@ -1,0 +1,434 @@
+// シーケンサー設定
+const STEPS_PER_BAR = 16; // 16分音符
+const BARS = 4;
+const TOTAL_STEPS = STEPS_PER_BAR * BARS; // 64
+const OCTAVES = 2;
+const NOTES_PER_OCTAVE = 12;
+const TOTAL_PITCHES = OCTAVES * NOTES_PER_OCTAVE; // 24
+const BASE_MIDI_NOTE = 60; // C4 を下のオクターブにするため、行0がC4+12になる
+
+/** @type {boolean[][]} [pitch][step] */
+let pattern = [];
+
+let audioCtx = null;
+let isPlaying = false;
+let currentStep = 0;
+let lastTouchedStep = 0;
+let lastScheduleTime = 0;
+let schedulerId = null;
+
+const bpmInput = document.getElementById("bpm-input");
+const loopCountInput = document.getElementById("loop-count");
+const playBtn = document.getElementById("play-btn");
+const stopBtn = document.getElementById("stop-btn");
+const exportBtn = document.getElementById("export-btn");
+const serializeBtn = document.getElementById("serialize-btn");
+const deserializeBtn = document.getElementById("deserialize-btn");
+const patternTextArea = document.getElementById("pattern-text");
+const pianorollEl = document.getElementById("pianoroll");
+const playheadEl = document.getElementById("playhead");
+
+// --- パターン初期化 ---
+for (let p = 0; p < TOTAL_PITCHES; p++) {
+  pattern[p] = [];
+  for (let s = 0; s < TOTAL_STEPS; s++) {
+    pattern[p][s] = false;
+  }
+}
+
+// --- ピアノロール生成 ---
+function midiToLabel(midi) {
+  const names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+  const name = names[midi % 12];
+  const oct = Math.floor(midi / 12) - 1;
+  return `${name}${oct}`;
+}
+
+function createPianoRoll() {
+  pianorollEl.innerHTML = "";
+
+  for (let row = 0; row < TOTAL_PITCHES; row++) {
+    const pitchIndex = TOTAL_PITCHES - 1 - row; // 上が高い音
+    const midi = BASE_MIDI_NOTE - 12 + pitchIndex; // C3〜B4くらい
+
+    // ラベル列
+    const label = document.createElement("div");
+    label.className = "pitch-label";
+    label.textContent = midiToLabel(midi);
+    pianorollEl.appendChild(label);
+
+    // ステップ
+    for (let step = 0; step < TOTAL_STEPS; step++) {
+      const cell = document.createElement("div");
+      cell.className = "cell";
+      // 各拍の頭に少し強いグリッド
+      if (step % 4 === 0) {
+        cell.classList.add("beat-strong");
+      }
+      const barIndex = Math.floor(step / STEPS_PER_BAR);
+      cell.classList.add(barIndex % 2 === 0 ? "bar-even" : "bar-odd");
+      cell.dataset.pitch = String(pitchIndex);
+      cell.dataset.step = String(step);
+      cell.addEventListener("click", () => {
+        const p = Number(cell.dataset.pitch);
+        const s = Number(cell.dataset.step);
+        pattern[p][s] = !pattern[p][s];
+        lastTouchedStep = s;
+        cell.classList.toggle("active", pattern[p][s]);
+
+        // クリック時に即時プレビュー音を鳴らす（ONにしたときのみ）
+        if (pattern[p][s]) {
+          ensureAudioContext();
+          if (audioCtx) {
+            playNoteAtTime(p, audioCtx.currentTime + 0.001);
+          }
+        }
+      });
+
+      pianorollEl.appendChild(cell);
+    }
+  }
+}
+
+createPianoRoll();
+
+// --- オーディオ関連 ---
+function ensureAudioContext() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+}
+
+function stepDurationSec(bpm) {
+  // 4/4で1拍=四分音符、16分音符は1/4拍
+  const beatSec = 60 / bpm;
+  return beatSec / 4;
+}
+
+function playNoteAtTime(pitchIndex, when) {
+  if (!audioCtx) return;
+  const midi = BASE_MIDI_NOTE - 12 + pitchIndex;
+  const freq = 440 * Math.pow(2, (midi - 69) / 12);
+
+  // 一部ブラウザでは currentTime より過去の時間を指定するとエラーになるためクランプ
+  const t = Math.max(audioCtx.currentTime + 0.001, when);
+
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+
+  osc.type = "sine";
+  osc.frequency.value = freq;
+
+  const nowGain = 0.001;
+  const maxGain = 0.18;
+
+  gain.gain.setValueAtTime(0, t);
+  gain.gain.linearRampToValueAtTime(maxGain, t + 0.005);
+  gain.gain.exponentialRampToValueAtTime(nowGain, t + 0.25);
+
+  osc.connect(gain).connect(audioCtx.destination);
+  osc.start(t);
+  osc.stop(t + 0.35);
+}
+
+function scheduleStep(step, baseTime, bpm) {
+  const t = baseTime + step * stepDurationSec(bpm);
+
+  // ノート再生
+  for (let p = 0; p < TOTAL_PITCHES; p++) {
+    if (pattern[p][step]) {
+      playNoteAtTime(p, t);
+    }
+  }
+
+  // 再生中インジケータのためDOM更新タイミングを記録
+  lastScheduleTime = t;
+}
+
+function startPlayback(fromStep) {
+  ensureAudioContext();
+  if (!audioCtx) return;
+
+  const bpm = Number(bpmInput.value) || 120;
+  const startStep = Math.max(0, Math.min(TOTAL_STEPS - 1, fromStep ?? 0));
+
+  isPlaying = true;
+  playBtn.disabled = true;
+  stopBtn.disabled = false;
+  playheadEl.style.opacity = "1";
+
+  // ループ再生（音と表示）をタイマーで進めるシンプル方式
+  const stepMs = stepDurationSec(bpm) * 1000;
+  const startWallClock = performance.now();
+  currentStep = startStep;
+
+  function tick() {
+    if (!isPlaying) return;
+    const elapsed = performance.now() - startWallClock;
+    const approxStep = Math.floor(elapsed / stepMs);
+    const stepInLoop = (startStep + approxStep) % TOTAL_STEPS;
+
+    // 新しいステップに進んだタイミングでだけ音を鳴らす
+    if (stepInLoop !== currentStep) {
+      currentStep = stepInLoop;
+      const when = audioCtx.currentTime + 0.02;
+      for (let p = 0; p < TOTAL_PITCHES; p++) {
+        if (pattern[p][stepInLoop]) {
+          playNoteAtTime(p, when);
+        }
+      }
+    }
+
+    updatePlayhead(stepInLoop);
+    highlightPlaying(stepInLoop);
+
+    schedulerId = requestAnimationFrame(tick);
+  }
+  tick();
+}
+
+function stopPlayback() {
+  isPlaying = false;
+  playBtn.disabled = false;
+  stopBtn.disabled = true;
+  playheadEl.style.opacity = "0";
+  if (schedulerId !== null) {
+    cancelAnimationFrame(schedulerId);
+    schedulerId = null;
+  }
+  clearPlayingHighlight();
+}
+
+// --- 再生位置UI ---
+function updatePlayhead(step) {
+  const cells = pianorollEl.querySelectorAll(".cell");
+  if (!cells.length) return;
+  // 1行あたり TOTAL_STEPS 個のセル＋左ラベル1
+  const firstRowCells = Array.from(cells).slice(0, TOTAL_STEPS);
+  const targetCell = firstRowCells[step];
+  if (!targetCell) return;
+
+  const rect = targetCell.getBoundingClientRect();
+  const parentRect = pianorollEl.getBoundingClientRect();
+  const left = rect.left - parentRect.left;
+  playheadEl.style.transform = `translateX(${left}px)`;
+}
+
+function clearPlayingHighlight() {
+  pianorollEl.querySelectorAll(".cell.playing").forEach((c) => {
+    c.classList.remove("playing");
+  });
+}
+
+function highlightPlaying(step) {
+  clearPlayingHighlight();
+  const cells = pianorollEl.querySelectorAll(`.cell[data-step="${step}"]`);
+  cells.forEach((c) => c.classList.add("playing"));
+}
+
+// --- ボタン制御 ---
+playBtn.addEventListener("click", () => {
+  if (isPlaying) return;
+  // 先頭（ステップ0）から再生
+  startPlayback(0);
+});
+
+stopBtn.addEventListener("click", () => {
+  stopPlayback();
+});
+
+// --- WAV エクスポート ---
+async function renderToWav() {
+  ensureAudioContext();
+
+  const bpm = Number(bpmInput.value) || 120;
+  const stepSec = stepDurationSec(bpm);
+  const loopCountRaw = loopCountInput ? Number(loopCountInput.value) : 1;
+  const loopCount = Math.max(1, Math.min(16, Number.isFinite(loopCountRaw) ? loopCountRaw : 1));
+  const totalStepsAll = TOTAL_STEPS * loopCount;
+  const totalDuration = stepSec * totalStepsAll + 1.0; // 余裕を1秒
+
+  // OfflineAudioContext でオフラインレンダリング
+  const sampleRate = audioCtx.sampleRate || 44100;
+  const offlineCtx = new OfflineAudioContext(1, Math.ceil(totalDuration * sampleRate), sampleRate);
+
+  function renderNote(pitchIndex, startTime) {
+    const midi = BASE_MIDI_NOTE - 12 + pitchIndex;
+    const freq = 440 * Math.pow(2, (midi - 69) / 12);
+
+    const osc = offlineCtx.createOscillator();
+    const gain = offlineCtx.createGain();
+
+    osc.type = "sine";
+    osc.frequency.value = freq;
+
+    const maxGain = 0.2;
+    const nowGain = 0.001;
+
+    gain.gain.setValueAtTime(0, startTime);
+    gain.gain.linearRampToValueAtTime(maxGain, startTime + 0.005);
+    gain.gain.exponentialRampToValueAtTime(nowGain, startTime + 0.25);
+
+    osc.connect(gain).connect(offlineCtx.destination);
+    osc.start(startTime);
+    osc.stop(startTime + 0.35);
+  }
+
+  for (let loop = 0; loop < loopCount; loop++) {
+    const loopOffset = loop * TOTAL_STEPS * stepSec;
+    for (let step = 0; step < TOTAL_STEPS; step++) {
+      const t = loopOffset + step * stepSec;
+      for (let p = 0; p < TOTAL_PITCHES; p++) {
+        if (pattern[p][step]) {
+          renderNote(p, t);
+        }
+      }
+    }
+  }
+
+  const rendered = await offlineCtx.startRendering();
+  const wavBlob = audioBufferToWavBlob(rendered);
+
+  const url = URL.createObjectURL(wavBlob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "tiny-sequence.wav";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function audioBufferToWavBlob(buffer) {
+  const numOfChan = buffer.numberOfChannels;
+  const length = buffer.length * numOfChan * 2 + 44;
+  const bufferArray = new ArrayBuffer(length);
+  const view = new DataView(bufferArray);
+
+  // RIFF chunk descriptor
+  writeString(view, 0, "RIFF");
+  view.setUint32(4, 36 + buffer.length * numOfChan * 2, true);
+  writeString(view, 8, "WAVE");
+
+  // FMT sub-chunk
+  writeString(view, 12, "fmt ");
+  view.setUint32(16, 16, true); // SubChunk1Size
+  view.setUint16(20, 1, true); // AudioFormat = PCM
+  view.setUint16(22, numOfChan, true);
+  view.setUint32(24, buffer.sampleRate, true);
+  view.setUint32(28, buffer.sampleRate * numOfChan * 2, true);
+  view.setUint16(32, numOfChan * 2, true);
+  view.setUint16(34, 16, true); // bits per sample
+
+  // data sub-chunk
+  writeString(view, 36, "data");
+  view.setUint32(40, buffer.length * numOfChan * 2, true);
+
+  // interleaved data
+  let offset = 44;
+  const channels = [];
+  for (let i = 0; i < numOfChan; i++) {
+    channels.push(buffer.getChannelData(i));
+  }
+
+  for (let i = 0; i < buffer.length; i++) {
+    for (let ch = 0; ch < numOfChan; ch++) {
+      let sample = channels[ch][i];
+      sample = Math.max(-1, Math.min(1, sample));
+      const s = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+      view.setInt16(offset, s, true);
+      offset += 2;
+    }
+  }
+
+  return new Blob([bufferArray], { type: "audio/wav" });
+}
+
+function writeString(view, offset, string) {
+  for (let i = 0; i < string.length; i++) {
+    view.setUint8(offset + i, string.charCodeAt(i));
+  }
+}
+
+exportBtn.addEventListener("click", () => {
+  renderToWav().catch((e) => {
+    console.error(e);
+    alert("WAVの書き出し中にエラーが発生しました");
+  });
+});
+
+// --- パターンのシリアライズ（テキスト出力） ---
+function serializePattern() {
+  // シンプルに JSON 文字列として出力（将来のロードも想定し、メタ情報も含める）
+  const data = {
+    version: 1,
+    stepsPerBar: STEPS_PER_BAR,
+    bars: BARS,
+    totalSteps: TOTAL_STEPS,
+    octaves: OCTAVES,
+    notesPerOctave: NOTES_PER_OCTAVE,
+    baseMidiNote: BASE_MIDI_NOTE,
+    bpm: Number(bpmInput.value) || 120,
+    pattern,
+  };
+  return JSON.stringify(data, null, 2);
+}
+
+if (serializeBtn && patternTextArea) {
+  serializeBtn.addEventListener("click", () => {
+    patternTextArea.value = serializePattern();
+    patternTextArea.focus();
+    patternTextArea.select();
+  });
+}
+
+// --- テキストからパターンを復元 ---
+function applyPatternFromData(newPattern) {
+  if (!Array.isArray(newPattern)) return;
+  // 形だけざっくり検証
+  if (newPattern.length !== TOTAL_PITCHES) return;
+
+  // 内部データを更新
+  pattern = [];
+  for (let p = 0; p < TOTAL_PITCHES; p++) {
+    pattern[p] = [];
+    for (let s = 0; s < TOTAL_STEPS; s++) {
+      pattern[p][s] = !!(newPattern[p] && newPattern[p][s]);
+    }
+  }
+
+  // UI を反映
+  const cells = pianorollEl.querySelectorAll(".cell");
+  cells.forEach((cell) => {
+    const p = Number(cell.dataset.pitch);
+    const s = Number(cell.dataset.step);
+    const on = !!(pattern[p] && pattern[p][s]);
+    cell.classList.toggle("active", on);
+  });
+}
+
+if (deserializeBtn && patternTextArea) {
+  deserializeBtn.addEventListener("click", () => {
+    try {
+      const text = patternTextArea.value.trim();
+      if (!text) {
+        alert("テキストエリアにシリアライズされたJSONを貼り付けてください。");
+        return;
+      }
+      const data = JSON.parse(text);
+      if (!data || !Array.isArray(data.pattern)) {
+        alert("pattern フィールドを持つJSONではありません。");
+        return;
+      }
+      applyPatternFromData(data.pattern);
+      if (data.bpm) {
+        bpmInput.value = String(data.bpm);
+      }
+    } catch (e) {
+      console.error(e);
+      alert("JSONのパースに失敗しました。フォーマットを確認してください。");
+    }
+  });
+}
+
+

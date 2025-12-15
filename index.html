@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Tiny Sequencer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="app-header">
+        <h1>Tiny Sequencer</h1>
+        <div class="controls">
+          <label>
+            BPM
+            <input id="bpm-input" type="number" min="40" max="240" value="120" />
+          </label>
+          <label>
+            WAVループ
+            <input id="loop-count" type="number" min="1" max="16" value="1" />
+          </label>
+          <button id="play-btn">再生</button>
+          <button id="stop-btn">停止</button>
+          <button id="export-btn">WAV書き出し</button>
+        </div>
+      </header>
+
+      <main class="main">
+        <div class="pianoroll-container">
+          <div class="pianoroll-header">
+            <div class="pitch-label-col"></div>
+            <div class="measures">
+              <div class="measure-label">1</div>
+              <div class="measure-label">2</div>
+              <div class="measure-label">3</div>
+              <div class="measure-label">4</div>
+            </div>
+          </div>
+          <div id="pianoroll" class="pianoroll"></div>
+          <div id="playhead" class="playhead"></div>
+        </div>
+        <section class="serial-section">
+          <h2 class="serial-title">パターンのテキスト表現</h2>
+          <div class="serial-controls">
+            <button id="serialize-btn">テキストに変換</button>
+            <button id="deserialize-btn">テキストから復元</button>
+          </div>
+          <textarea id="pattern-text" class="serial-textarea" rows="6" spellcheck="false"></textarea>
+        </section>
+      </main>
+    </div>
+
+    <script src="main.js"></script>
+  </body>
+</html>
+
+
