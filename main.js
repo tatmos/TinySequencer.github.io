@@ -27,6 +27,97 @@ const deserializeBtn = document.getElementById("deserialize-btn");
 const patternTextArea = document.getElementById("pattern-text");
 const pianorollEl = document.getElementById("pianoroll");
 const playheadEl = document.getElementById("playhead");
+const chordTrackEl = document.getElementById("chord-track");
+
+// コードネーム用のデータ（ステップ数で長さを管理・合計でTOTAL_STEPSになる）
+/** @type {{ name: string; lengthSteps: number }[]} */
+let chords = [
+  { name: "", lengthSteps: STEPS_PER_BAR },
+  { name: "", lengthSteps: STEPS_PER_BAR },
+  { name: "", lengthSteps: STEPS_PER_BAR },
+  { name: "", lengthSteps: STEPS_PER_BAR },
+];
+
+const MIN_CHORD_STEPS = 4; // 最小長さ（16分音符4つ = 1拍）くらいに制限
+
+function renderChordTrack() {
+  if (!chordTrackEl) return;
+  chordTrackEl.innerHTML = "";
+
+  chords.forEach((chord, index) => {
+    const segment = document.createElement("div");
+    segment.className = "chord-segment";
+    segment.style.flexGrow = String(chord.lengthSteps);
+
+    const input = document.createElement("input");
+    input.className = "chord-input";
+    input.type = "text";
+    input.placeholder = "例: Cmaj7";
+    input.value = chord.name;
+    input.addEventListener("input", () => {
+      chords[index].name = input.value;
+    });
+
+    segment.appendChild(input);
+
+    // 右端の境界をドラッグして長さ調整（最後のセグメント以外）
+    if (index < chords.length - 1) {
+      const handle = document.createElement("div");
+      handle.className = "chord-handle";
+
+      handle.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        const trackRect = chordTrackEl.getBoundingClientRect();
+        const startX = e.clientX;
+        const startLeftLen = chords[index].lengthSteps;
+        const startRightLen = chords[index + 1].lengthSteps;
+        const pixelsPerStep = trackRect.width / TOTAL_STEPS;
+
+        function onMouseMove(ev) {
+          const deltaPx = ev.clientX - startX;
+          const rawSteps = deltaPx / pixelsPerStep;
+          const deltaSteps = Math.round(rawSteps);
+
+          let newLeft = startLeftLen + deltaSteps;
+          let newRight = startRightLen - deltaSteps;
+
+          // 最小長さを下回らないように制限
+          if (newLeft < MIN_CHORD_STEPS) {
+            const diff = MIN_CHORD_STEPS - newLeft;
+            newLeft += diff;
+            newRight -= diff;
+          }
+          if (newRight < MIN_CHORD_STEPS) {
+            const diff = MIN_CHORD_STEPS - newRight;
+            newRight += diff;
+            newLeft -= diff;
+          }
+
+          // 合計ステップ数が変わらないようにしつつ、極端なドラッグは無視
+          if (newLeft < MIN_CHORD_STEPS || newRight < MIN_CHORD_STEPS) {
+            return;
+          }
+
+          chords[index].lengthSteps = newLeft;
+          chords[index + 1].lengthSteps = newRight;
+          renderChordTrack();
+        }
+
+        function onMouseUp() {
+          window.removeEventListener("mousemove", onMouseMove);
+          window.removeEventListener("mouseup", onMouseUp);
+        }
+
+        window.addEventListener("mousemove", onMouseMove);
+        window.addEventListener("mouseup", onMouseUp);
+      });
+
+      segment.appendChild(handle);
+    }
+
+    chordTrackEl.appendChild(segment);
+  });
+}
 
 // --- パターン初期化 ---
 for (let p = 0; p < TOTAL_PITCHES; p++) {
@@ -44,6 +135,12 @@ function midiToLabel(midi) {
   return `${name}${oct}`;
 }
 
+function isBlackKey(midi) {
+  // C#, D#, F#, G#, A# が黒鍵
+  const blackKeyIndices = [1, 3, 6, 8, 10];
+  return blackKeyIndices.includes(midi % 12);
+}
+
 function createPianoRoll() {
   pianorollEl.innerHTML = "";
 
@@ -54,6 +151,10 @@ function createPianoRoll() {
     // ラベル列
     const label = document.createElement("div");
     label.className = "pitch-label";
+     // 黒鍵行には専用クラスを付与
+    if (isBlackKey(midi)) {
+      label.classList.add("black-key");
+    }
     label.textContent = midiToLabel(midi);
     pianorollEl.appendChild(label);
 
@@ -61,6 +162,10 @@ function createPianoRoll() {
     for (let step = 0; step < TOTAL_STEPS; step++) {
       const cell = document.createElement("div");
       cell.className = "cell";
+      // 黒鍵行のセルにもクラスを付与
+      if (isBlackKey(midi)) {
+        cell.classList.add("black-key-row");
+      }
       // 各拍の頭に少し強いグリッド
       if (step % 4 === 0) {
         cell.classList.add("beat-strong");
@@ -88,6 +193,9 @@ function createPianoRoll() {
       pianorollEl.appendChild(cell);
     }
   }
+
+  // ピアノロール生成後にコードトラックも描画
+  renderChordTrack();
 }
 
 createPianoRoll();
