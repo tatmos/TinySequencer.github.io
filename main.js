@@ -34,6 +34,7 @@ const flipHorizBtn = document.getElementById("flip-horiz-btn");
 const randVertBtn = document.getElementById("rand-vert-btn");
 const randHorizBtn = document.getElementById("rand-horiz-btn");
 const smoothBtn = document.getElementById("smooth-btn");
+const undoBtn = document.getElementById("undo-btn");
 
 // 矩形選択・ドラッグ用の状態
 let isSelecting = false;
@@ -46,6 +47,12 @@ let dragCurrentPitch = null;
 let dragCurrentStep = null;
 /** @type {{ p: number; s: number }[]} */
 let dragSelection = [];
+
+// Undo 用の履歴
+/** @type {boolean[][][]} */
+let history = [];
+let historyIndex = -1;
+const MAX_HISTORY = 100;
 
 // コードネーム用のデータ（ステップ数で長さを管理・合計でTOTAL_STEPSになる）
 /** @type {{ lengthSteps: number }[]} */
@@ -71,6 +78,49 @@ function getChordStepRange(index) {
   }
   const end = start + chords[index].lengthSteps;
   return { start, end };
+}
+
+function clonePattern(src) {
+  const result = [];
+  for (let p = 0; p < TOTAL_PITCHES; p++) {
+    result[p] = [];
+    for (let s = 0; s < TOTAL_STEPS; s++) {
+      result[p][s] = src[p][s];
+    }
+  }
+  return result;
+}
+
+function pushHistory() {
+  if (!pattern.length) return;
+  const snapshot = clonePattern(pattern);
+  // 現在位置以降のやり直し分を破棄してから追加
+  if (historyIndex < history.length - 1) {
+    history = history.slice(0, historyIndex + 1);
+  }
+  history.push(snapshot);
+  if (history.length > MAX_HISTORY) {
+    history.shift();
+  } else {
+    historyIndex++;
+  }
+}
+
+function restoreFromHistory(index) {
+  if (index < 0 || index >= history.length) return;
+  pattern = clonePattern(history[index]);
+
+  // UI を反映
+  const cells = pianorollEl.querySelectorAll(".cell");
+  cells.forEach((cell) => {
+    const p = Number(cell.dataset.pitch);
+    const s = Number(cell.dataset.step);
+    const on = !!(pattern[p] && pattern[p][s]);
+    cell.classList.toggle("active", on);
+  });
+
+  clearCellSelection();
+  renderChordTrack();
 }
 
 function getPitchClassesForRange(startStep, endStep) {
@@ -306,6 +356,16 @@ if (smoothBtn) {
   });
 }
 
+if (undoBtn) {
+  undoBtn.addEventListener("click", () => {
+    if (historyIndex <= 0 || history.length === 0) {
+      return;
+    }
+    historyIndex -= 1;
+    restoreFromHistory(historyIndex);
+  });
+}
+
 function updateNoteDegrees() {
   if (!pianorollEl) return;
 
@@ -534,6 +594,8 @@ function applyTransformToSelection(transformFn) {
     alert("まず矩形選択でノートを選んでください。");
     return;
   }
+
+  pushHistory();
 
   const newPattern = [];
   for (let p = 0; p < TOTAL_PITCHES; p++) {
@@ -819,6 +881,7 @@ function createPianoRoll() {
       cell.addEventListener("click", () => {
         const p = Number(cell.dataset.pitch);
         const s = Number(cell.dataset.step);
+        pushHistory();
         pattern[p][s] = !pattern[p][s];
         lastTouchedStep = s;
         cell.classList.toggle("active", pattern[p][s]);
@@ -975,6 +1038,8 @@ function createPianoRoll() {
 }
 
 createPianoRoll();
+// 初期状態を履歴に追加
+pushHistory();
 
 // --- オーディオ関連 ---
 function ensureAudioContext() {
@@ -1273,6 +1338,7 @@ function applyPatternFromData(newPattern) {
   if (newPattern.length !== TOTAL_PITCHES) return;
 
   // 内部データを更新
+  pushHistory();
   pattern = [];
   for (let p = 0; p < TOTAL_PITCHES; p++) {
     pattern[p] = [];

@@ -11,29 +11,41 @@
       <header class="app-header">
         <h1>Tiny Sequencer</h1>
         <div class="controls">
-          <label>
-            BPM
-            <input id="bpm-input" type="number" min="40" max="240" value="120" />
-          </label>
-          <label>
-            WAVループ
-            <input id="loop-count" type="number" min="1" max="16" value="1" />
-          </label>
-          <label>
-            表示
-            <select id="display-mode">
-              <option value="chord">コードの度数表示</option>
-              <option value="berklee">バークリー音階表示</option>
-            </select>
-          </label>
-          <button id="flip-vert-btn">上下反転</button>
-          <button id="flip-horiz-btn">左右反転</button>
-          <button id="rand-vert-btn">上下ランダム</button>
-          <button id="rand-horiz-btn">左右ランダム</button>
-          <button id="smooth-btn">なめらか</button>
-          <button id="play-btn">再生</button>
-          <button id="stop-btn">停止</button>
-          <button id="export-btn">WAV書き出し</button>
+          <div class="control-group">
+            <div class="control-group-label">再生</div>
+            <label>
+              BPM
+              <input id="bpm-input" type="number" min="40" max="240" value="120" />
+            </label>
+            <label>
+              WAVループ
+              <input id="loop-count" type="number" min="1" max="16" value="1" />
+            </label>
+            <button id="play-btn">再生</button>
+            <button id="stop-btn">停止</button>
+            <button id="export-btn">WAV書き出し</button>
+          </div>
+
+          <div class="control-group">
+            <div class="control-group-label">表示</div>
+            <label>
+              モード
+              <select id="display-mode">
+                <option value="chord">コードの度数表示</option>
+                <option value="berklee">バークリー音階表示</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="control-group">
+            <div class="control-group-label">編集</div>
+            <button id="flip-vert-btn">上下反転</button>
+            <button id="flip-horiz-btn">左右反転</button>
+            <button id="rand-vert-btn">上下ランダム</button>
+            <button id="rand-horiz-btn">左右ランダム</button>
+            <button id="smooth-btn">なめらか</button>
+            <button id="undo-btn">Undo</button>
+          </div>
         </div>
       </header>
 
