@@ -29,6 +29,18 @@ const pianorollEl = document.getElementById("pianoroll");
 const playheadEl = document.getElementById("playhead");
 const chordTrackEl = document.getElementById("chord-track");
 
+// 矩形選択・ドラッグ用の状態
+let isSelecting = false;
+let selectionStartPitch = null;
+let selectionStartStep = null;
+let isDraggingSelection = false;
+let dragOriginPitch = null;
+let dragOriginStep = null;
+let dragCurrentPitch = null;
+let dragCurrentStep = null;
+/** @type {{ p: number; s: number }[]} */
+let dragSelection = [];
+
 // コードネーム用のデータ（ステップ数で長さを管理・合計でTOTAL_STEPSになる）
 /** @type {{ lengthSteps: number }[]} */
 let chords = [
@@ -291,6 +303,44 @@ function updateNoteDegrees() {
   });
 }
 
+function clearCellSelection() {
+  if (!pianorollEl) return;
+  pianorollEl.querySelectorAll(".cell.selected").forEach((c) => c.classList.remove("selected"));
+}
+
+function updateRectSelection(pitchA, stepA, pitchB, stepB) {
+  if (!pianorollEl) return;
+  clearCellSelection();
+  const minPitch = Math.min(pitchA, pitchB);
+  const maxPitch = Math.max(pitchA, pitchB);
+  const minStep = Math.min(stepA, stepB);
+  const maxStep = Math.max(stepA, stepB);
+
+  const cells = pianorollEl.querySelectorAll(".cell");
+  cells.forEach((cell) => {
+    const p = Number(cell.dataset.pitch);
+    const s = Number(cell.dataset.step);
+    if (p >= minPitch && p <= maxPitch && s >= minStep && s <= maxStep) {
+      cell.classList.add("selected");
+    }
+  });
+}
+
+function getSelectedNotePositions() {
+  /** @type {{ p: number; s: number }[]} */
+  const result = [];
+  if (!pianorollEl) return result;
+  const cells = pianorollEl.querySelectorAll(".cell.selected");
+  cells.forEach((cell) => {
+    const p = Number(cell.dataset.pitch);
+    const s = Number(cell.dataset.step);
+    if (pattern[p] && pattern[p][s]) {
+      result.push({ p, s });
+    }
+  });
+  return result;
+}
+
 function renderChordTrack() {
   if (!chordTrackEl) return;
   chordTrackEl.innerHTML = "";
@@ -484,6 +534,48 @@ function createPianoRoll() {
       cell.classList.add(barIndex % 2 === 0 ? "bar-even" : "bar-odd");
       cell.dataset.pitch = String(pitchIndex);
       cell.dataset.step = String(step);
+
+      cell.addEventListener("mousedown", (ev) => {
+        ev.preventDefault();
+        const p = Number(cell.dataset.pitch);
+        const s = Number(cell.dataset.step);
+
+        const hasNote = !!(pattern[p] && pattern[p][s]);
+
+        // ノートがあるところからドラッグ開始した場合
+        if (hasNote) {
+          const currentSelected = getSelectedNotePositions();
+          const isInSelection =
+            cell.classList.contains("selected") &&
+            currentSelected.some((pos) => pos.p === p && pos.s === s);
+
+          isDraggingSelection = true;
+          dragOriginPitch = p;
+          dragOriginStep = s;
+          dragCurrentPitch = p;
+          dragCurrentStep = s;
+
+          if (isInSelection && currentSelected.length > 1) {
+            // 既存の複数選択をそのままドラッグ
+            dragSelection = currentSelected;
+          } else {
+            // このノートだけをドラッグ対象にする
+            dragSelection = [{ p, s }];
+            clearCellSelection();
+            cell.classList.add("selected");
+          }
+        } else {
+          // ノートの無いところからは矩形選択開始
+          isSelecting = true;
+          selectionStartPitch = p;
+          selectionStartStep = s;
+          dragCurrentPitch = p;
+          dragCurrentStep = s;
+          clearCellSelection();
+          updateRectSelection(selectionStartPitch, selectionStartStep, p, s);
+        }
+      });
+
       cell.addEventListener("click", () => {
         const p = Number(cell.dataset.pitch);
         const s = Number(cell.dataset.step);
@@ -520,6 +612,126 @@ function createPianoRoll() {
 
   // ピアノロール生成後にコードトラックも描画
   renderChordTrack();
+
+  // グローバルなドラッグ処理
+  window.addEventListener("mousemove", (ev) => {
+    if (!isSelecting && !isDraggingSelection) return;
+    const el = document.elementFromPoint(ev.clientX, ev.clientY);
+    if (!el || !(el instanceof HTMLElement) || !el.classList.contains("cell")) return;
+    const p = Number(el.dataset.pitch);
+    const s = Number(el.dataset.step);
+    dragCurrentPitch = p;
+    dragCurrentStep = s;
+
+    if (isSelecting && selectionStartPitch != null && selectionStartStep != null) {
+      updateRectSelection(selectionStartPitch, selectionStartStep, p, s);
+    } else if (isDraggingSelection && dragOriginPitch != null && dragOriginStep != null && dragSelection.length) {
+      // ドラッグ中のプレビュー（選択枠を移動先に表示）
+      const deltaPitch = dragCurrentPitch - dragOriginPitch;
+      const deltaStep = dragCurrentStep - dragOriginStep;
+
+      clearCellSelection();
+      dragSelection.forEach(({ p: op, s: os }) => {
+        const np = op + deltaPitch;
+        const ns = os + deltaStep;
+        if (np < 0 || np >= TOTAL_PITCHES || ns < 0 || ns >= TOTAL_STEPS) return;
+        const target = pianorollEl.querySelector(`.cell[data-pitch="${np}"][data-step="${ns}"]`);
+        if (target) {
+          target.classList.add("selected");
+        }
+      });
+    }
+  });
+
+  window.addEventListener("mouseup", () => {
+    // 矩形選択終了
+    if (isSelecting) {
+      isSelecting = false;
+      selectionStartPitch = null;
+      selectionStartStep = null;
+    }
+
+    // 選択ノートのドラッグ移動
+    if (isDraggingSelection) {
+      isDraggingSelection = false;
+      if (
+        dragOriginPitch == null ||
+        dragOriginStep == null ||
+        dragCurrentPitch == null ||
+        dragCurrentStep == null ||
+        !dragSelection.length
+      ) {
+        dragOriginPitch = dragOriginStep = dragCurrentPitch = dragCurrentStep = null;
+        dragSelection = [];
+        return;
+      }
+
+      const deltaPitch = dragCurrentPitch - dragOriginPitch;
+      const deltaStep = dragCurrentStep - dragOriginStep;
+
+      if (deltaPitch === 0 && deltaStep === 0) {
+        dragOriginPitch = dragOriginStep = dragCurrentPitch = dragCurrentStep = null;
+        dragSelection = [];
+        return;
+      }
+
+      // 移動後に範囲外に出てしまうノートがある場合は何もしない
+      const outOfRange = dragSelection.some(({ p, s }) => {
+        const np = p + deltaPitch;
+        const ns = s + deltaStep;
+        return np < 0 || np >= TOTAL_PITCHES || ns < 0 || ns >= TOTAL_STEPS;
+      });
+      if (outOfRange) {
+        dragOriginPitch = dragOriginStep = dragCurrentPitch = dragCurrentStep = null;
+        dragSelection = [];
+        return;
+      }
+
+      // パターンを更新
+      const newPattern = [];
+      for (let p = 0; p < TOTAL_PITCHES; p++) {
+        newPattern[p] = [];
+        for (let s = 0; s < TOTAL_STEPS; s++) {
+          newPattern[p][s] = pattern[p][s];
+        }
+      }
+
+      dragSelection.forEach(({ p, s }) => {
+        const np = p + deltaPitch;
+        const ns = s + deltaStep;
+        newPattern[p][s] = false;
+        newPattern[np][ns] = true;
+      });
+
+      pattern = newPattern;
+
+      // UI を反映
+      const cells = pianorollEl.querySelectorAll(".cell");
+      cells.forEach((cell) => {
+        const p = Number(cell.dataset.pitch);
+        const s = Number(cell.dataset.step);
+        const on = !!(pattern[p] && pattern[p][s]);
+        cell.classList.toggle("active", on);
+      });
+
+      // 選択枠も移動後の位置に更新
+      clearCellSelection();
+      dragSelection.forEach(({ p, s }) => {
+        const np = p + deltaPitch;
+        const ns = s + deltaStep;
+        const el = pianorollEl.querySelector(`.cell[data-pitch="${np}"][data-step="${ns}"]`);
+        if (el) {
+          el.classList.add("selected");
+        }
+      });
+
+      // コードと度数ラベルを更新
+      renderChordTrack();
+
+      dragOriginPitch = dragOriginStep = dragCurrentPitch = dragCurrentStep = null;
+      dragSelection = [];
+    }
+  });
 }
 
 createPianoRoll();

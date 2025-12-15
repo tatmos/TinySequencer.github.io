@@ -260,6 +260,12 @@ button:disabled {
   box-shadow: 0 0 8px rgba(56, 189, 248, 0.9);
 }
 
+/* セルの矩形選択状態 */
+.cell.selected {
+  outline: 2px solid rgba(251, 191, 36, 0.9);
+  outline-offset: -2px;
+}
+
 /* コード度数ラベル（1, b2, b3, 3, 5, b5, #5, b7, 7, 9, 11, 13 など） */
 .note-degree {
   position: absolute;
