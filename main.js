@@ -1111,6 +1111,16 @@ function startPlayback(fromStep) {
   const startWallClock = performance.now();
   currentStep = startStep;
 
+  // 再生開始時点のステップを即座に鳴らす
+  const firstWhen = audioCtx.currentTime + 0.02;
+  for (let p = 0; p < TOTAL_PITCHES; p++) {
+    if (pattern[p][startStep]) {
+      playNoteAtTime(p, firstWhen);
+    }
+  }
+  updatePlayhead(startStep);
+  highlightPlaying(startStep);
+
   function tick() {
     if (!isPlaying) return;
     const elapsed = performance.now() - startWallClock;
