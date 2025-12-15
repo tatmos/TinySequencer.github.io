@@ -29,6 +29,11 @@ const pianorollEl = document.getElementById("pianoroll");
 const playheadEl = document.getElementById("playhead");
 const chordTrackEl = document.getElementById("chord-track");
 const displayModeSelect = document.getElementById("display-mode");
+const flipVertBtn = document.getElementById("flip-vert-btn");
+const flipHorizBtn = document.getElementById("flip-horiz-btn");
+const randVertBtn = document.getElementById("rand-vert-btn");
+const randHorizBtn = document.getElementById("rand-horiz-btn");
+const smoothBtn = document.getElementById("smooth-btn");
 
 // 矩形選択・ドラッグ用の状態
 let isSelecting = false;
@@ -190,6 +195,114 @@ if (displayModeSelect) {
     const value = displayModeSelect.value === DISPLAY_MODE_BERKLEE ? DISPLAY_MODE_BERKLEE : DISPLAY_MODE_CHORD;
     displayMode = value;
     updateNoteDegrees();
+  });
+}
+
+// --- 上下反転 / 左右反転 / ランダム / なめらか ---
+if (flipVertBtn) {
+  flipVertBtn.addEventListener("click", () => {
+    const selected = getSelectedNotePositions();
+    if (!selected.length) {
+      alert("まず矩形選択でノートを選んでください。");
+      return;
+    }
+    const minPitch = Math.min(...selected.map((n) => n.p));
+    const maxPitch = Math.max(...selected.map((n) => n.p));
+    applyTransformToSelection(({ p, s }) => ({
+      p: maxPitch - (p - minPitch),
+      s,
+    }));
+  });
+}
+
+if (flipHorizBtn) {
+  flipHorizBtn.addEventListener("click", () => {
+    const selected = getSelectedNotePositions();
+    if (!selected.length) {
+      alert("まず矩形選択でノートを選んでください。");
+      return;
+    }
+    const minStep = Math.min(...selected.map((n) => n.s));
+    const maxStep = Math.max(...selected.map((n) => n.s));
+    applyTransformToSelection(({ p, s }) => ({
+      p,
+      s: maxStep - (s - minStep),
+    }));
+  });
+}
+
+if (randVertBtn) {
+  randVertBtn.addEventListener("click", () => {
+    const selected = getSelectedNotePositions();
+    if (!selected.length) {
+      alert("まず矩形選択でノートを選んでください。");
+      return;
+    }
+    const minPitch = Math.min(...selected.map((n) => n.p));
+    const maxPitch = Math.max(...selected.map((n) => n.p));
+    applyTransformToSelection(({ p, s }) => ({
+      p: minPitch + Math.floor(Math.random() * (maxPitch - minPitch + 1)),
+      s,
+    }));
+  });
+}
+
+if (randHorizBtn) {
+  randHorizBtn.addEventListener("click", () => {
+    const selected = getSelectedNotePositions();
+    if (!selected.length) {
+      alert("まず矩形選択でノートを選んでください。");
+      return;
+    }
+    const minStep = Math.min(...selected.map((n) => n.s));
+    const maxStep = Math.max(...selected.map((n) => n.s));
+    applyTransformToSelection(({ p, s }) => ({
+      p,
+      s: minStep + Math.floor(Math.random() * (maxStep - minStep + 1)),
+    }));
+  });
+}
+
+if (smoothBtn) {
+  smoothBtn.addEventListener("click", () => {
+    const selected = getSelectedNotePositions();
+    if (!selected.length) {
+      alert("まず矩形選択でノートを選んでください。");
+      return;
+    }
+    const steps = Array.from(new Set(selected.map((n) => n.s))).sort((a, b) => a - b);
+    if (steps.length < 2) {
+      alert("なめらかにするには、時間方向に2ステップ以上のノートが必要です。");
+      return;
+    }
+
+    // 各ステップの平均ピッチを求める
+    const stepToAvgPitch = new Map();
+    steps.forEach((s) => {
+      const ps = selected.filter((n) => n.s === s).map((n) => n.p);
+      const avg = ps.reduce((a, b) => a + b, 0) / ps.length;
+      stepToAvgPitch.set(s, avg);
+    });
+
+    const firstStep = steps[0];
+    const lastStep = steps[steps.length - 1];
+    const firstPitch = stepToAvgPitch.get(firstStep);
+    const lastPitch = stepToAvgPitch.get(lastStep);
+    if (firstPitch == null || lastPitch == null) return;
+
+    // 各ステップに対して、始点と終点を結ぶ直線上のピッチを割り当て
+    const stepToSmoothPitch = new Map();
+    steps.forEach((s, index) => {
+      const t = steps.length === 1 ? 0 : index / (steps.length - 1);
+      const p = Math.round(firstPitch + (lastPitch - firstPitch) * t);
+      stepToSmoothPitch.set(s, Math.max(0, Math.min(TOTAL_PITCHES - 1, p)));
+    });
+
+    applyTransformToSelection(({ p, s }) => {
+      const smoothP = stepToSmoothPitch.get(s);
+      if (smoothP == null) return { p, s };
+      return { p: smoothP, s };
+    });
   });
 }
 
@@ -409,6 +522,63 @@ function getSelectedNotePositions() {
     }
   });
   return result;
+}
+
+/**
+ * 選択されているノートに対して変換関数を適用し、pattern と UI を更新するヘルパー
+ * @param {(note: { p: number; s: number }) => { p: number; s: number } | null} transformFn
+ */
+function applyTransformToSelection(transformFn) {
+  const selected = getSelectedNotePositions();
+  if (!selected.length) {
+    alert("まず矩形選択でノートを選んでください。");
+    return;
+  }
+
+  const newPattern = [];
+  for (let p = 0; p < TOTAL_PITCHES; p++) {
+    newPattern[p] = [];
+    for (let s = 0; s < TOTAL_STEPS; s++) {
+      newPattern[p][s] = pattern[p][s];
+    }
+  }
+
+  /** @type {{ p: number; s: number }[]} */
+  const newPositions = [];
+
+  selected.forEach(({ p, s }) => {
+    const mapped = transformFn({ p, s });
+    if (!mapped) return;
+    const np = mapped.p;
+    const ns = mapped.s;
+    if (np < 0 || np >= TOTAL_PITCHES || ns < 0 || ns >= TOTAL_STEPS) {
+      return;
+    }
+    newPattern[p][s] = false;
+    newPattern[np][ns] = true;
+    newPositions.push({ p: np, s: ns });
+  });
+
+  pattern = newPattern;
+
+  // UI を反映
+  const cells = pianorollEl.querySelectorAll(".cell");
+  cells.forEach((cell) => {
+    const p = Number(cell.dataset.pitch);
+    const s = Number(cell.dataset.step);
+    const on = !!(pattern[p] && pattern[p][s]);
+    cell.classList.toggle("active", on);
+  });
+
+  // 選択状態を更新
+  clearCellSelection();
+  newPositions.forEach(({ p, s }) => {
+    const el = pianorollEl.querySelector(`.cell[data-pitch="${p}"][data-step="${s}"]`);
+    if (el) el.classList.add("selected");
+  });
+
+  // コードと度数ラベルを更新
+  renderChordTrack();
 }
 
 function renderChordTrack() {
