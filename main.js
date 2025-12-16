@@ -1446,6 +1446,31 @@ stopBtn.addEventListener("click", () => {
   stopPlayback();
 });
 
+// スペースキーで再生・停止を切り替え
+window.addEventListener("keydown", (ev) => {
+  // テキストエリアや入力フィールドにフォーカスがある場合は無視
+  const activeElement = document.activeElement;
+  if (
+    activeElement &&
+    (activeElement.tagName === "INPUT" ||
+      activeElement.tagName === "TEXTAREA" ||
+      activeElement.isContentEditable)
+  ) {
+    return;
+  }
+
+  // スペースキーが押された場合
+  if (ev.code === "Space" || ev.key === " ") {
+    ev.preventDefault();
+    if (isPlaying) {
+      stopPlayback();
+    } else {
+      // 先頭（ステップ0）から再生
+      startPlayback(0);
+    }
+  }
+});
+
 // --- WAV エクスポート ---
 async function renderToWav() {
   ensureAudioContext();
