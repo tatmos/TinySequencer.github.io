@@ -35,6 +35,7 @@ const randVertBtn = document.getElementById("rand-vert-btn");
 const randHorizBtn = document.getElementById("rand-horiz-btn");
 const smoothBtn = document.getElementById("smooth-btn");
 const undoBtn = document.getElementById("undo-btn");
+const redoBtn = document.getElementById("redo-btn");
 
 // 矩形選択・ドラッグ用の状態
 let isSelecting = false;
@@ -404,6 +405,16 @@ if (undoBtn) {
       return;
     }
     historyIndex -= 1;
+    restoreFromHistory(historyIndex);
+  });
+}
+
+if (redoBtn) {
+  redoBtn.addEventListener("click", () => {
+    if (historyIndex >= history.length - 1) {
+      return;
+    }
+    historyIndex += 1;
     restoreFromHistory(historyIndex);
   });
 }
