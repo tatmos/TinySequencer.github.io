@@ -406,6 +406,33 @@ button:disabled {
   outline-offset: -2px;
 }
 
+/* ノートの右端ドラッグハンドル */
+.note-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: ew-resize;
+  background: rgba(251, 191, 36, 0.6);
+  z-index: 10;
+  border-radius: 2px;
+}
+
+.note-resize-handle:hover {
+  background: rgba(251, 191, 36, 0.9);
+  width: 8px;
+  right: -4px;
+}
+
+.cell.note-start {
+  border-left: 2px solid rgba(251, 191, 36, 0.8);
+}
+
+.cell.note-end {
+  border-right: 2px solid rgba(251, 191, 36, 0.8);
+}
+
 .playhead {
   pointer-events: none;
   position: absolute;

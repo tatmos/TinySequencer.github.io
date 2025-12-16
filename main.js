@@ -7,7 +7,7 @@ const NOTES_PER_OCTAVE = 12;
 const TOTAL_PITCHES = OCTAVES * NOTES_PER_OCTAVE; // 24
 const BASE_MIDI_NOTE = 60; // C4 を下のオクターブにするため、行0がC4+12になる
 
-/** @type {boolean[][]} [pitch][step] */
+/** @type {{ startStep: number; length: number }[][]} [pitch][noteIndex] */
 let pattern = [];
 
 let audioCtx = null;
@@ -89,7 +89,7 @@ function getFirstNoteLabel() {
   // ステップ0から順に走査して、新しいピッチクラスが見つかったら追加（最大8個まで）
   for (let s = 0; s < TOTAL_STEPS && pitchClassNames.size < MAX_NOTES; s++) {
     for (let p = 0; p < TOTAL_PITCHES && pitchClassNames.size < MAX_NOTES; p++) {
-      if (pattern[p] && pattern[p][s]) {
+      if (hasNoteAtStep(p, s)) {
         const midi = BASE_MIDI_NOTE - 12 + p;
         const label = midiToLabel(midi);
         // オクターブ番号を除いてピッチクラス名だけを取得（例: "C4" → "C", "C#4" → "C#"）
@@ -125,8 +125,10 @@ function clonePattern(src) {
   const result = [];
   for (let p = 0; p < TOTAL_PITCHES; p++) {
     result[p] = [];
-    for (let s = 0; s < TOTAL_STEPS; s++) {
-      result[p][s] = src[p][s];
+    if (src[p]) {
+      for (let i = 0; i < src[p].length; i++) {
+        result[p].push({ startStep: src[p][i].startStep, length: src[p][i].length });
+      }
     }
   }
   return result;
@@ -152,13 +154,7 @@ function restoreFromHistory(index) {
   pattern = clonePattern(history[index]);
 
   // UI を反映
-  const cells = pianorollEl.querySelectorAll(".cell");
-  cells.forEach((cell) => {
-    const p = Number(cell.dataset.pitch);
-    const s = Number(cell.dataset.step);
-    const on = !!(pattern[p] && pattern[p][s]);
-    cell.classList.toggle("active", on);
-  });
+  renderPianoRoll();
 
   clearCellSelection();
   renderChordTrack();
@@ -170,7 +166,7 @@ function getPitchClassesForRange(startStep, endStep) {
 
   for (let p = 0; p < TOTAL_PITCHES; p++) {
     for (let s = startStep; s < endStep; s++) {
-      if (pattern[p][s]) {
+      if (hasNoteAtStep(p, s)) {
         const midi = BASE_MIDI_NOTE - 12 + p;
         pitchClasses.add(midi % 12);
       }
@@ -623,7 +619,7 @@ function getSelectedNotePositions() {
   cells.forEach((cell) => {
     const p = Number(cell.dataset.pitch);
     const s = Number(cell.dataset.step);
-    if (pattern[p] && pattern[p][s]) {
+    if (hasNoteAtStep(p, s)) {
       result.push({ p, s });
     }
   });
@@ -634,9 +630,11 @@ function getAllNotePositions() {
   /** @type {{ p: number; s: number }[]} */
   const result = [];
   for (let p = 0; p < TOTAL_PITCHES; p++) {
-    for (let s = 0; s < TOTAL_STEPS; s++) {
-      if (pattern[p] && pattern[p][s]) {
-        result.push({ p, s });
+    if (pattern[p]) {
+      for (const note of pattern[p]) {
+        for (let s = note.startStep; s < note.startStep + note.length; s++) {
+          result.push({ p, s });
+        }
       }
     }
   }
@@ -652,40 +650,44 @@ function applyTransformToNotes(notes, transformFn) {
   if (!notes.length) return;
   pushHistory();
 
-  const newPattern = [];
-  for (let p = 0; p < TOTAL_PITCHES; p++) {
-    newPattern[p] = [];
-    for (let s = 0; s < TOTAL_STEPS; s++) {
-      newPattern[p][s] = pattern[p][s];
+  // 移動対象のノートを収集（重複を避ける）
+  const notesToMove = new Map();
+  notes.forEach(({ p, s }) => {
+    const note = getNoteAtStep(p, s);
+    if (note) {
+      const key = `${p}-${note.startStep}`;
+      if (!notesToMove.has(key)) {
+        notesToMove.set(key, { p, note });
+      }
     }
-  }
+  });
 
   /** @type {{ p: number; s: number }[]} */
   const newPositions = [];
 
-  notes.forEach(({ p, s }) => {
-    const mapped = transformFn({ p, s });
+  // 元のノートを削除し、新しい位置に追加
+  notesToMove.forEach(({ p, note }) => {
+    const mapped = transformFn({ p, s: note.startStep });
     if (!mapped) return;
     const np = mapped.p;
     const ns = mapped.s;
-    if (np < 0 || np >= TOTAL_PITCHES || ns < 0 || ns >= TOTAL_STEPS) {
+    if (np < 0 || np >= TOTAL_PITCHES || ns < 0 || ns + note.length > TOTAL_STEPS) {
       return;
     }
-    newPattern[p][s] = false;
-    newPattern[np][ns] = true;
+    
+    // 元のノートを削除
+    const index = pattern[p].indexOf(note);
+    if (index !== -1) {
+      pattern[p].splice(index, 1);
+    }
+    
+    // 新しい位置にノートを追加
+    addNote(np, ns, note.length);
     newPositions.push({ p: np, s: ns });
   });
 
-  pattern = newPattern;
-
   // UI を反映
-  const cells = pianorollEl.querySelectorAll(".cell");
-  cells.forEach((cell) => {
-    const p = Number(cell.dataset.pitch);
-    const s = Number(cell.dataset.step);
-    const on = !!(pattern[p] && pattern[p][s]);
-    cell.classList.toggle("active", on);
-  });
+  renderPianoRoll();
 
   // 選択状態を更新
   clearCellSelection();
@@ -848,8 +850,56 @@ function renderChordTrack() {
 // --- パターン初期化 ---
 for (let p = 0; p < TOTAL_PITCHES; p++) {
   pattern[p] = [];
-  for (let s = 0; s < TOTAL_STEPS; s++) {
-    pattern[p][s] = false;
+}
+
+// ノートが指定されたステップに存在するかチェックするヘルパー関数
+function hasNoteAtStep(pitch, step) {
+  if (!pattern[pitch]) return false;
+  return pattern[pitch].some(note => step >= note.startStep && step < note.startStep + note.length);
+}
+
+// ノートを取得するヘルパー関数
+function getNoteAtStep(pitch, step) {
+  if (!pattern[pitch]) return null;
+  return pattern[pitch].find(note => step >= note.startStep && step < note.startStep + note.length) || null;
+}
+
+// ノートを追加するヘルパー関数
+function addNote(pitch, startStep, length = 1) {
+  if (!pattern[pitch]) pattern[pitch] = [];
+  // 既存のノートと重複しないようにチェック
+  const overlaps = pattern[pitch].some(note => {
+    return !(startStep + length <= note.startStep || startStep >= note.startStep + note.length);
+  });
+  if (!overlaps) {
+    pattern[pitch].push({ startStep, length });
+    // startStep でソート
+    pattern[pitch].sort((a, b) => a.startStep - b.startStep);
+  }
+}
+
+// ノートを削除するヘルパー関数
+function removeNoteAtStep(pitch, step) {
+  if (!pattern[pitch]) return;
+  const index = pattern[pitch].findIndex(note => step >= note.startStep && step < note.startStep + note.length);
+  if (index !== -1) {
+    pattern[pitch].splice(index, 1);
+  }
+}
+
+// ノートの長さを変更するヘルパー関数
+function resizeNote(pitch, step, newLength) {
+  if (!pattern[pitch]) return;
+  const note = getNoteAtStep(pitch, step);
+  if (note && newLength > 0) {
+    // 新しい長さが他のノートと重複しないかチェック
+    const endStep = note.startStep + newLength;
+    const overlaps = pattern[pitch].some(n => {
+      return n !== note && !(endStep <= n.startStep || note.startStep >= n.startStep + n.length);
+    });
+    if (!overlaps && endStep <= TOTAL_STEPS) {
+      note.length = newLength;
+    }
   }
 }
 
@@ -865,6 +915,42 @@ function isBlackKey(midi) {
   // C#, D#, F#, G#, A# が黒鍵
   const blackKeyIndices = [1, 3, 6, 8, 10];
   return blackKeyIndices.includes(midi % 12);
+}
+
+// ピアノロールを再描画する関数
+function renderPianoRoll() {
+  if (!pianorollEl) return;
+  
+  // 全てのセルを更新
+  const cells = pianorollEl.querySelectorAll(".cell");
+  cells.forEach((cell) => {
+    const p = Number(cell.dataset.pitch);
+    const s = Number(cell.dataset.step);
+    const note = getNoteAtStep(p, s);
+    const isNoteStart = note && note.startStep === s;
+    const isNoteEnd = note && note.startStep + note.length - 1 === s;
+    
+    cell.classList.toggle("active", !!note);
+    cell.classList.toggle("note-start", isNoteStart);
+    cell.classList.toggle("note-end", isNoteEnd);
+    
+    // 既存のドラッグハンドルを削除
+    const existingHandle = cell.querySelector(".note-resize-handle");
+    if (existingHandle) {
+      existingHandle.remove();
+    }
+    
+    // ノートの右端にドラッグハンドルを追加
+    if (isNoteEnd && note.length > 0) {
+      const handle = document.createElement("div");
+      handle.className = "note-resize-handle";
+      handle.dataset.pitch = String(p);
+      handle.dataset.step = String(s);
+      cell.appendChild(handle);
+    }
+  });
+  
+  updateNoteDegrees();
 }
 
 function createPianoRoll() {
@@ -902,11 +988,16 @@ function createPianoRoll() {
       cell.dataset.step = String(step);
 
       cell.addEventListener("mousedown", (ev) => {
+        // ドラッグハンドルがクリックされた場合は処理をスキップ
+        if (ev.target.classList.contains("note-resize-handle")) {
+          return;
+        }
+        
         ev.preventDefault();
         const p = Number(cell.dataset.pitch);
         const s = Number(cell.dataset.step);
 
-        const hasNote = !!(pattern[p] && pattern[p][s]);
+        const hasNote = hasNoteAtStep(p, s);
 
         // ノートがあるところからドラッグ開始した場合
         if (hasNote) {
@@ -945,13 +1036,22 @@ function createPianoRoll() {
       cell.addEventListener("click", () => {
         const p = Number(cell.dataset.pitch);
         const s = Number(cell.dataset.step);
+        const hadNote = hasNoteAtStep(p, s);
         pushHistory();
-        pattern[p][s] = !pattern[p][s];
+        
+        if (hadNote) {
+          // ノートを削除
+          removeNoteAtStep(p, s);
+        } else {
+          // ノートを追加（デフォルト長さ1）
+          addNote(p, s, 1);
+        }
+        
         lastTouchedStep = s;
-        cell.classList.toggle("active", pattern[p][s]);
+        renderPianoRoll();
 
         // クリック時に即時プレビュー音を鳴らす（ONにしたときのみ）
-        if (pattern[p][s]) {
+        if (!hadNote) {
           ensureAudioContext();
           if (audioCtx) {
             playNoteAtTime(p, audioCtx.currentTime + 0.001);
@@ -966,7 +1066,7 @@ function createPianoRoll() {
       cell.addEventListener("mouseenter", () => {
         const p = Number(cell.dataset.pitch);
         const s = Number(cell.dataset.step);
-        if (!pattern[p][s]) return; // ノートが無いセルでは鳴らさない
+        if (!hasNoteAtStep(p, s)) return; // ノートが無いセルでは鳴らさない
         ensureAudioContext();
         if (audioCtx) {
           playNoteAtTime(p, audioCtx.currentTime + 0.001);
@@ -978,7 +1078,49 @@ function createPianoRoll() {
   }
 
   // ピアノロール生成後にコードトラックも描画
+  renderPianoRoll();
   renderChordTrack();
+  
+  // ノートの右端をドラッグして長さを変更する機能
+  pianorollEl.addEventListener("mousedown", (ev) => {
+    const handle = ev.target.closest(".note-resize-handle");
+    if (!handle) return;
+    
+    ev.preventDefault();
+    ev.stopPropagation();
+    
+    const p = Number(handle.dataset.pitch);
+    const s = Number(handle.dataset.step);
+    const note = getNoteAtStep(p, s);
+    if (!note) return;
+    
+    const startLength = note.length;
+    const startX = ev.clientX;
+    const trackRect = pianorollEl.getBoundingClientRect();
+    const pixelsPerStep = (trackRect.width - 64) / TOTAL_STEPS; // 64はラベル列の幅
+    
+    function onMouseMove(e) {
+      const deltaX = e.clientX - startX;
+      const deltaSteps = Math.round(deltaX / pixelsPerStep);
+      const newLength = Math.max(1, startLength + deltaSteps);
+      const maxLength = TOTAL_STEPS - note.startStep;
+      
+      if (newLength <= maxLength) {
+        resizeNote(p, s, newLength);
+        renderPianoRoll();
+      }
+    }
+    
+    function onMouseUp() {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      pushHistory();
+      renderChordTrack();
+    }
+    
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  });
 
   // グローバルなドラッグ処理
   window.addEventListener("mousemove", (ev) => {
@@ -1013,6 +1155,34 @@ function createPianoRoll() {
   window.addEventListener("mouseup", () => {
     // 矩形選択終了
     if (isSelecting) {
+      // 横方向のみのドラッグの場合（縦方向の移動が1ピッチ以下）、開始位置から終了位置までのステップにノートを入力
+      if (
+        selectionStartPitch != null &&
+        selectionStartStep != null &&
+        dragCurrentPitch != null &&
+        dragCurrentStep != null &&
+        Math.abs(dragCurrentPitch - selectionStartPitch) <= 1 &&
+        dragCurrentStep !== selectionStartStep
+      ) {
+        const startPitch = selectionStartPitch;
+        const startStep = Math.min(selectionStartStep, dragCurrentStep);
+        const endStep = Math.max(selectionStartStep, dragCurrentStep);
+        const length = endStep - startStep + 1;
+        
+        pushHistory();
+        
+        // 開始stepから終了stepまでの範囲にノートを入力
+        if (startStep >= 0 && startStep < TOTAL_STEPS && length > 0) {
+          addNote(startPitch, startStep, length);
+        }
+        
+        // UI を反映
+        renderPianoRoll();
+        
+        clearCellSelection();
+        renderChordTrack();
+      }
+      
       isSelecting = false;
       selectionStartPitch = null;
       selectionStartStep = null;
@@ -1054,41 +1224,48 @@ function createPianoRoll() {
         return;
       }
 
-      // パターンを更新
-      const newPattern = [];
-      for (let p = 0; p < TOTAL_PITCHES; p++) {
-        newPattern[p] = [];
-        for (let s = 0; s < TOTAL_STEPS; s++) {
-          newPattern[p][s] = pattern[p][s];
-        }
-      }
-
+      // パターンを更新（ノートを移動）
+      pushHistory();
+      
+      // 移動対象のノートを収集
+      const notesToMove = [];
       dragSelection.forEach(({ p, s }) => {
-        const np = p + deltaPitch;
-        const ns = s + deltaStep;
-        newPattern[p][s] = false;
-        newPattern[np][ns] = true;
+        const note = getNoteAtStep(p, s);
+        if (note && !notesToMove.find(n => n.note === note && n.p === p)) {
+          notesToMove.push({ p, note });
+        }
       });
-
-      pattern = newPattern;
+      
+      // 元のノートを削除
+      notesToMove.forEach(({ p, note }) => {
+        const index = pattern[p].indexOf(note);
+        if (index !== -1) {
+          pattern[p].splice(index, 1);
+        }
+      });
+      
+      // 新しい位置にノートを追加
+      notesToMove.forEach(({ p, note }) => {
+        const newP = p + deltaPitch;
+        const newStartStep = note.startStep + deltaStep;
+        if (newP >= 0 && newP < TOTAL_PITCHES && newStartStep >= 0 && newStartStep + note.length <= TOTAL_STEPS) {
+          addNote(newP, newStartStep, note.length);
+        }
+      });
 
       // UI を反映
-      const cells = pianorollEl.querySelectorAll(".cell");
-      cells.forEach((cell) => {
-        const p = Number(cell.dataset.pitch);
-        const s = Number(cell.dataset.step);
-        const on = !!(pattern[p] && pattern[p][s]);
-        cell.classList.toggle("active", on);
-      });
+      renderPianoRoll();
 
       // 選択枠も移動後の位置に更新
       clearCellSelection();
-      dragSelection.forEach(({ p, s }) => {
-        const np = p + deltaPitch;
-        const ns = s + deltaStep;
-        const el = pianorollEl.querySelector(`.cell[data-pitch="${np}"][data-step="${ns}"]`);
-        if (el) {
-          el.classList.add("selected");
+      notesToMove.forEach(({ p, note }) => {
+        const newP = p + deltaPitch;
+        const newStartStep = note.startStep + deltaStep;
+        if (newP >= 0 && newP < TOTAL_PITCHES && newStartStep >= 0 && newStartStep < TOTAL_STEPS) {
+          const el = pianorollEl.querySelector(`.cell[data-pitch="${newP}"][data-step="${newStartStep}"]`);
+          if (el) {
+            el.classList.add("selected");
+          }
         }
       });
 
@@ -1147,10 +1324,13 @@ function playNoteAtTime(pitchIndex, when) {
 function scheduleStep(step, baseTime, bpm) {
   const t = baseTime + step * stepDurationSec(bpm);
 
-  // ノート再生
+  // ノート再生（ノートの開始位置でのみ再生）
   for (let p = 0; p < TOTAL_PITCHES; p++) {
-    if (pattern[p][step]) {
-      playNoteAtTime(p, t);
+    if (pattern[p]) {
+      const note = pattern[p].find(n => n.startStep === step);
+      if (note) {
+        playNoteAtTime(p, t);
+      }
     }
   }
 
@@ -1178,8 +1358,11 @@ function startPlayback(fromStep) {
   // 再生開始時点のステップを即座に鳴らす
   const firstWhen = audioCtx.currentTime + 0.02;
   for (let p = 0; p < TOTAL_PITCHES; p++) {
-    if (pattern[p][startStep]) {
-      playNoteAtTime(p, firstWhen);
+    if (pattern[p]) {
+      const note = pattern[p].find(n => n.startStep === startStep);
+      if (note) {
+        playNoteAtTime(p, firstWhen);
+      }
     }
   }
   updatePlayhead(startStep);
@@ -1196,8 +1379,11 @@ function startPlayback(fromStep) {
       currentStep = stepInLoop;
       const when = audioCtx.currentTime + 0.02;
       for (let p = 0; p < TOTAL_PITCHES; p++) {
-        if (pattern[p][stepInLoop]) {
-          playNoteAtTime(p, when);
+        if (pattern[p]) {
+          const note = pattern[p].find(n => n.startStep === stepInLoop);
+          if (note) {
+            playNoteAtTime(p, when);
+          }
         }
       }
     }
@@ -1302,8 +1488,11 @@ async function renderToWav() {
     for (let step = 0; step < TOTAL_STEPS; step++) {
       const t = loopOffset + step * stepSec;
       for (let p = 0; p < TOTAL_PITCHES; p++) {
-        if (pattern[p][step]) {
-          renderNote(p, t);
+        if (pattern[p]) {
+          const note = pattern[p].find(n => n.startStep === step);
+          if (note) {
+            renderNote(p, t);
+          }
         }
       }
     }
@@ -1421,19 +1610,33 @@ function applyPatternFromData(newPattern) {
   pattern = [];
   for (let p = 0; p < TOTAL_PITCHES; p++) {
     pattern[p] = [];
-    for (let s = 0; s < TOTAL_STEPS; s++) {
-      pattern[p][s] = !!(newPattern[p] && newPattern[p][s]);
+    if (newPattern[p]) {
+      // 新しい形式（ノートオブジェクトのリスト）か古い形式（boolean配列）かを判定
+      if (Array.isArray(newPattern[p]) && newPattern[p].length > 0) {
+        if (typeof newPattern[p][0] === 'object' && 'startStep' in newPattern[p][0]) {
+          // 新しい形式
+          pattern[p] = newPattern[p].map(note => ({ startStep: note.startStep, length: note.length }));
+        } else {
+          // 古い形式（boolean配列）を新しい形式に変換
+          for (let s = 0; s < TOTAL_STEPS; s++) {
+            if (newPattern[p][s]) {
+              // 連続するノートを1つのノートとして結合
+              let startStep = s;
+              let length = 1;
+              while (s + length < TOTAL_STEPS && newPattern[p][s + length]) {
+                length++;
+              }
+              pattern[p].push({ startStep, length });
+              s += length - 1;
+            }
+          }
+        }
+      }
     }
   }
 
   // UI を反映
-  const cells = pianorollEl.querySelectorAll(".cell");
-  cells.forEach((cell) => {
-    const p = Number(cell.dataset.pitch);
-    const s = Number(cell.dataset.step);
-    const on = !!(pattern[p] && pattern[p][s]);
-    cell.classList.toggle("active", on);
-  });
+  renderPianoRoll();
 }
 
 if (deserializeBtn && patternTextArea) {
