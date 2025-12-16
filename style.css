@@ -108,7 +108,7 @@ button:disabled {
 .main {
   border-radius: 12px;
   padding: 12px;
-  background: radial-gradient(circle at top, #111827, #020617);
+  background: #020617;
   box-shadow: 0 12px 30px rgba(15, 23, 42, 0.9);
 }
 
@@ -150,7 +150,7 @@ button:disabled {
   border-radius: 8px;
   overflow: hidden;
   border: 1px solid #1f2937;
-  background: linear-gradient(180deg, #020617, #020617 40%, #0f172a);
+  background: #020617;
 }
 
 /* コードネーム入力行 */
@@ -176,7 +176,7 @@ button:disabled {
   min-height: 26px;
   border: 1px solid #111827;
   border-radius: 4px;
-  background: radial-gradient(circle at top, #020617, #020617 40%, #020617);
+  background: #020617;
   overflow: hidden;
 }
 
@@ -242,7 +242,7 @@ button:disabled {
   height: 18px;
   border-right: 1px solid rgba(55, 65, 81, 0.6);
   border-bottom: 1px solid rgba(31, 41, 55, 0.9);
-  background: radial-gradient(circle at 30% 20%, #020617 0, #020617 40%, #020617 100%);
+  background: #020617;
   cursor: pointer;
   position: relative;
   transition: background 0.08s ease, box-shadow 0.08s ease;
@@ -250,7 +250,7 @@ button:disabled {
 
 /* 黒鍵行のノート背景（ベース） - ノートが入っていないセル用 */
 .cell.black-key-row:not(.active) {
-  background: linear-gradient(90deg, #020617, #020617 30%, #0f172a 100%);
+  background: #020617;
 }
 
 .cell.beat-strong {
@@ -268,11 +268,11 @@ button:disabled {
 
 /* 黒鍵行用の小節ごとの色（控えめなコントラスト・ノートなしのみ） */
 .cell.black-key-row.bar-even:not(.active) {
-  background: linear-gradient(90deg, #020617, #020617 20%, rgba(17, 24, 39, 0.9) 100%);
+  background: rgba(17, 24, 39, 0.9);
 }
 
 .cell.black-key-row.bar-odd:not(.active) {
-  background: linear-gradient(90deg, #020617, #020617 20%, rgba(37, 99, 235, 0.35) 100%);
+  background: rgba(37, 99, 235, 0.35);
 }
 
 .cell:nth-child(4n + 0) {
@@ -281,8 +281,8 @@ button:disabled {
 }
 
 .cell.active {
-  background: radial-gradient(circle at 30% 20%, #22d3ee 0, #0ea5e9 35%, #6366f1 100%);
-  box-shadow: 0 0 8px rgba(56, 189, 248, 0.9);
+  background: #1e3a5f;
+  box-shadow: 0 0 4px rgba(56, 189, 248, 0.5);
 }
 
 /* セルの矩形選択状態 */
@@ -310,7 +310,7 @@ button:disabled {
 }
 
 .cell.active.degree-1 {
-  background: radial-gradient(circle at 30% 20%, #e5e7eb 0, #d1d5db 35%, #9ca3af 100%);
+  background: #4b5563;
 }
 
 .degree-b2 .note-degree {
@@ -318,7 +318,7 @@ button:disabled {
 }
 
 .cell.active.degree-b2 {
-  background: radial-gradient(circle at 30% 20%, #fef3c7 0, #facc15 35%, #b45309 100%);
+  background: #92400e;
 }
 
 .degree-b3 .note-degree {
@@ -326,7 +326,7 @@ button:disabled {
 }
 
 .cell.active.degree-b3 {
-  background: radial-gradient(circle at 30% 20%, #fee2e2 0, #fca5a5 35%, #b91c1c 100%);
+  background: #7f1d1d;
 }
 
 .degree-3 .note-degree {
@@ -334,7 +334,7 @@ button:disabled {
 }
 
 .cell.active.degree-3 {
-  background: radial-gradient(circle at 30% 20%, #a7f3d0 0, #34d399 35%, #059669 100%);
+  background: #064e3b;
 }
 
 .degree-5 .note-degree {
@@ -342,7 +342,7 @@ button:disabled {
 }
 
 .cell.active.degree-5 {
-  background: radial-gradient(circle at 30% 20%, #bfdbfe 0, #60a5fa 35%, #1d4ed8 100%);
+  background: #1e3a8a;
 }
 
 .degree-b5 .note-degree {
@@ -350,7 +350,7 @@ button:disabled {
 }
 
 .cell.active.degree-b5 {
-  background: radial-gradient(circle at 30% 20%, #fef3c7 0, #fbbf24 35%, #d97706 100%);
+  background: #78350f;
 }
 
 .degree-#5 .note-degree {
@@ -358,7 +358,7 @@ button:disabled {
 }
 
 .cell.active.degree-#5 {
-  background: radial-gradient(circle at 30% 20%, #ffe4e6 0, #fb7185 35%, #be123c 100%);
+  background: #7f1d1d;
 }
 
 .degree-b7 .note-degree {
@@ -366,7 +366,7 @@ button:disabled {
 }
 
 .cell.active.degree-b7 {
-  background: radial-gradient(circle at 30% 20%, #fef3c7 0, #fbbf24 35%, #b45309 100%);
+  background: #78350f;
 }
 
 .degree-7 .note-degree {
@@ -374,7 +374,7 @@ button:disabled {
 }
 
 .cell.active.degree-7 {
-  background: radial-gradient(circle at 30% 20%, #fef9c3 0, #facc15 35%, #a16207 100%);
+  background: #854d0e;
 }
 
 .degree-9 .note-degree {
@@ -382,7 +382,7 @@ button:disabled {
 }
 
 .cell.active.degree-9 {
-  background: radial-gradient(circle at 30% 20%, #fed7aa 0, #fb923c 35%, #c2410c 100%);
+  background: #7c2d12;
 }
 
 .degree-11 .note-degree {
@@ -390,7 +390,7 @@ button:disabled {
 }
 
 .cell.active.degree-11 {
-  background: radial-gradient(circle at 30% 20%, #a7f3d0 0, #34d399 35%, #059669 100%);
+  background: #064e3b;
 }
 
 .degree-13 .note-degree {
@@ -398,7 +398,7 @@ button:disabled {
 }
 
 .cell.active.degree-13 {
-  background: radial-gradient(circle at 30% 20%, #bae6fd 0, #38bdf8 35%, #0369a1 100%);
+  background: #0c4a6e;
 }
 
 .cell.playing {
