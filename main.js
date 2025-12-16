@@ -48,6 +48,9 @@ let dragCurrentPitch = null;
 let dragCurrentStep = null;
 /** @type {{ p: number; s: number }[]} */
 let dragSelection = [];
+// ドラッグ中プレビュー用の最後に鳴らした位置
+let lastDragPreviewPitch = null;
+let lastDragPreviewStep = null;
 
 // Undo 用の履歴
 /** @type {boolean[][][]} */
@@ -1160,6 +1163,27 @@ function createPianoRoll() {
           target.classList.add("selected");
         }
       });
+
+      // ドラッグ中もプレビュー音を鳴らす（代表ノート1つだけ）
+      const base = dragSelection[0];
+      if (base) {
+        const previewPitch = base.p + deltaPitch;
+        const previewStep = base.s + deltaStep;
+        if (
+          previewPitch >= 0 &&
+          previewPitch < TOTAL_PITCHES &&
+          previewStep >= 0 &&
+          previewStep < TOTAL_STEPS &&
+          (previewPitch !== lastDragPreviewPitch || previewStep !== lastDragPreviewStep)
+        ) {
+          lastDragPreviewPitch = previewPitch;
+          lastDragPreviewStep = previewStep;
+          ensureAudioContext();
+          if (audioCtx) {
+            playNoteAtTime(previewPitch, audioCtx.currentTime + 0.001);
+          }
+        }
+      }
     }
   });
 
@@ -1202,6 +1226,8 @@ function createPianoRoll() {
     // 選択ノートのドラッグ移動
     if (isDraggingSelection) {
       isDraggingSelection = false;
+      lastDragPreviewPitch = null;
+      lastDragPreviewStep = null;
       if (
         dragOriginPitch == null ||
         dragOriginStep == null ||
@@ -1457,7 +1483,7 @@ stopBtn.addEventListener("click", () => {
   stopPlayback();
 });
 
-// スペースキーで再生・停止を切り替え
+// --- キーボードショートカット ---
 window.addEventListener("keydown", (ev) => {
   // テキストエリアや入力フィールドにフォーカスがある場合は無視
   const activeElement = document.activeElement;
@@ -1470,7 +1496,7 @@ window.addEventListener("keydown", (ev) => {
     return;
   }
 
-  // スペースキーが押された場合
+  // スペースキーで再生・停止をトグル
   if (ev.code === "Space" || ev.key === " ") {
     ev.preventDefault();
     if (isPlaying) {
@@ -1478,6 +1504,27 @@ window.addEventListener("keydown", (ev) => {
     } else {
       // 先頭（ステップ0）から再生
       startPlayback(0);
+    }
+    return;
+  }
+
+  // Ctrl+Z → Undo, Ctrl+Shift+Z → Redo
+  if (ev.key === "z" || ev.key === "Z") {
+    if (ev.ctrlKey && !ev.metaKey && !ev.shiftKey) {
+      // Ctrl+Z (Undo)
+      ev.preventDefault();
+      if (undoBtn) {
+        undoBtn.click();
+      }
+      return;
+    }
+    if (ev.ctrlKey && ev.shiftKey && !ev.metaKey) {
+      // Ctrl+Shift+Z (Redo)
+      ev.preventDefault();
+      if (redoBtn) {
+        redoBtn.click();
+      }
+      return;
     }
   }
 });
