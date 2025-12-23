@@ -76,7 +76,9 @@ const MIN_CHORD_STEPS = 4; // 最小長さ（16分音符4つ = 1拍）くらい�
 const PITCH_CLASS_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const DISPLAY_MODE_CHORD = "chord";
 const DISPLAY_MODE_BERKLEE = "berklee";
-/** @type {"chord" | "berklee"} */
+const DISPLAY_MODE_ABSOLUTE = "absolute";
+const DISPLAY_MODE_BERKLEE_ABSOLUTE = "berklee-absolute";
+/** @type {"chord" | "berklee" | "absolute" | "berklee-absolute"} */
 let displayMode = DISPLAY_MODE_CHORD;
 let playChords = false;
 
@@ -288,8 +290,16 @@ function detectChordNameForIndex(index) {
 
 if (displayModeSelect) {
   displayModeSelect.addEventListener("change", () => {
-    const value = displayModeSelect.value === DISPLAY_MODE_BERKLEE ? DISPLAY_MODE_BERKLEE : DISPLAY_MODE_CHORD;
-    displayMode = value;
+    const value = displayModeSelect.value;
+    if (
+      value === DISPLAY_MODE_BERKLEE ||
+      value === DISPLAY_MODE_ABSOLUTE ||
+      value === DISPLAY_MODE_BERKLEE_ABSOLUTE
+    ) {
+      displayMode = value;
+    } else {
+      displayMode = DISPLAY_MODE_CHORD;
+    }
     updateNoteDegrees();
   });
 }
@@ -479,76 +489,28 @@ function updateNoteDegrees() {
 
     const step = Number(cell.dataset.step);
     const pitchIndex = Number(cell.dataset.pitch);
-    const rootPc = stepRoot[step];
-    const baseSet = stepBaseSet[step];
-    if (rootPc == null || !baseSet) return;
+
+    // ノート先頭以外のマスにはラベルを表示しない
+    const note = getNoteAtStep(pitchIndex, step);
+    if (!note || note.startStep !== step) {
+      return;
+    }
 
     const midi = BASE_MIDI_NOTE - 12 + pitchIndex;
     const pc = midi % 12;
-    const rel = (pc - rootPc + 12) % 12;
 
     /** @type {string | null} */
     let label = null;
     /** @type {string | null} */
     let cls = null;
 
-    if (displayMode === DISPLAY_MODE_CHORD) {
-      // コードの度数表示モード（1, b2, b3, 3, 5, b5, #5, b7, 7, 9, 11, 13）
-      switch (rel) {
-        case 0:
-          label = "1";
-          cls = "degree-1";
-          break;
-        case 1:
-          label = "b2";
-          cls = "degree-b2";
-          break;
-        case 3:
-          label = "b3";
-          cls = "degree-b3";
-          break;
-        case 4:
-          label = "3";
-          cls = "degree-3";
-          break;
-        case 7:
-          label = "5";
-          cls = "degree-5";
-          break;
-        case 6:
-          label = "b5";
-          cls = "degree-b5";
-          break;
-        case 8:
-          label = "#5";
-          cls = "degree-#5";
-          break;
-        case 10:
-          label = "b7";
-          cls = "degree-b7";
-          break;
-        case 11:
-          label = "7";
-          cls = "degree-7";
-          break;
-        case 2:
-          label = "9";
-          cls = "degree-9";
-          break;
-        case 5:
-          label = "11";
-          cls = "degree-11";
-          break;
-        case 9:
-          label = "13";
-          cls = "degree-13";
-          break;
-        default:
-          // その他の度数はラベルなし
-          break;
-      }
-    } else if (displayMode === DISPLAY_MODE_BERKLEE) {
-      // バークリー音階表示モード（do di re me mi fa fi so si la te ti）
+    if (displayMode === DISPLAY_MODE_ABSOLUTE) {
+      // 絶対音表示（C4, D#5 など）
+      label = midiToLabel(midi);
+      cls = null; // 色分けはしない
+    } else if (displayMode === DISPLAY_MODE_BERKLEE_ABSOLUTE) {
+      // バークリー音階絶対表示（C＝do 固定のsolfege）
+      const rel = pc; // Cを基準にした相対度数
       switch (rel) {
         case 0:
           label = "do";
@@ -601,15 +563,135 @@ function updateNoteDegrees() {
         default:
           break;
       }
+    } else {
+      const rootPc = stepRoot[step];
+      const baseSet = stepBaseSet[step];
+      if (rootPc == null || !baseSet) {
+        return;
+      }
+      const rel = (pc - rootPc + 12) % 12;
+
+      if (displayMode === DISPLAY_MODE_CHORD) {
+        // コードの度数表示モード（1, b2, b3, 3, 5, b5, #5, b7, 7, 9, 11, 13）
+        switch (rel) {
+        case 0:
+          label = "1";
+          cls = "degree-1";
+          break;
+        case 1:
+          label = "b2";
+          cls = "degree-b2";
+          break;
+        case 3:
+          label = "b3";
+          cls = "degree-b3";
+          break;
+        case 4:
+          label = "3";
+          cls = "degree-3";
+          break;
+        case 7:
+          label = "5";
+          cls = "degree-5";
+          break;
+        case 6:
+          label = "b5";
+          cls = "degree-b5";
+          break;
+        case 8:
+          label = "#5";
+          cls = "degree-#5";
+          break;
+        case 10:
+          label = "b7";
+          cls = "degree-b7";
+          break;
+        case 11:
+          label = "7";
+          cls = "degree-7";
+          break;
+        case 2:
+          label = "9";
+          cls = "degree-9";
+          break;
+        case 5:
+          label = "11";
+          cls = "degree-11";
+          break;
+        case 9:
+          label = "13";
+          cls = "degree-13";
+          break;
+          default:
+            // その他の度数はラベルなし
+            break;
+        }
+      } else if (displayMode === DISPLAY_MODE_BERKLEE) {
+        // バークリー音階表示モード（do di re me mi fa fi so si la te ti）
+        switch (rel) {
+        case 0:
+          label = "do";
+          cls = "degree-1";
+          break;
+        case 1:
+          label = "di";
+          cls = "degree-b2";
+          break;
+        case 2:
+          label = "re";
+          cls = "degree-9"; // 2度 ≒ 9度
+          break;
+        case 3:
+          label = "me";
+          cls = "degree-b3";
+          break;
+        case 4:
+          label = "mi";
+          cls = "degree-3";
+          break;
+        case 5:
+          label = "fa";
+          cls = "degree-11"; // 4度 ≒ 11度
+          break;
+        case 6:
+          label = "fi";
+          cls = "degree-b5";
+          break;
+        case 7:
+          label = "so";
+          cls = "degree-5";
+          break;
+        case 8:
+          label = "si";
+          cls = "degree-#5";
+          break;
+        case 9:
+          label = "la";
+          cls = "degree-13"; // 6度 ≒ 13度
+          break;
+        case 10:
+          label = "te";
+          cls = "degree-b7";
+          break;
+          case 11:
+            label = "ti";
+            cls = "degree-7";
+            break;
+          default:
+            break;
+        }
+      }
     }
 
-    if (!label || !cls) return;
+    if (!label) return;
 
     const span = document.createElement("span");
     span.className = "note-degree";
     span.textContent = label;
     cell.appendChild(span);
-    cell.classList.add(cls);
+    if (cls) {
+      cell.classList.add(cls);
+    }
   });
 }
 
@@ -1813,7 +1895,13 @@ function applyPatternFromData(data) {
   }
 
   // 表示モードを復元（version 2以降）
-  if (data.displayMode && (data.displayMode === DISPLAY_MODE_CHORD || data.displayMode === DISPLAY_MODE_BERKLEE)) {
+  if (
+    data.displayMode &&
+    (data.displayMode === DISPLAY_MODE_CHORD ||
+      data.displayMode === DISPLAY_MODE_BERKLEE ||
+      data.displayMode === DISPLAY_MODE_ABSOLUTE ||
+      data.displayMode === DISPLAY_MODE_BERKLEE_ABSOLUTE)
+  ) {
     displayMode = data.displayMode;
     if (displayModeSelect) {
       displayModeSelect.value = displayMode;
