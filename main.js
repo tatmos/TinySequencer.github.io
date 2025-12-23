@@ -32,6 +32,7 @@ const pianorollEl = document.getElementById("pianoroll");
 const playheadEl = document.getElementById("playhead");
 const chordTrackEl = document.getElementById("chord-track");
 const displayModeSelect = document.getElementById("display-mode");
+const playChordsToggle = document.getElementById("play-chords-toggle");
 const flipVertBtn = document.getElementById("flip-vert-btn");
 const flipHorizBtn = document.getElementById("flip-horiz-btn");
 const randVertBtn = document.getElementById("rand-vert-btn");
@@ -77,6 +78,7 @@ const DISPLAY_MODE_CHORD = "chord";
 const DISPLAY_MODE_BERKLEE = "berklee";
 /** @type {"chord" | "berklee"} */
 let displayMode = DISPLAY_MODE_CHORD;
+let playChords = false;
 
 function getChordStepRange(index) {
   let start = 0;
@@ -289,6 +291,12 @@ if (displayModeSelect) {
     const value = displayModeSelect.value === DISPLAY_MODE_BERKLEE ? DISPLAY_MODE_BERKLEE : DISPLAY_MODE_CHORD;
     displayMode = value;
     updateNoteDegrees();
+  });
+}
+
+if (playChordsToggle) {
+  playChordsToggle.addEventListener("change", () => {
+    playChords = playChordsToggle.checked;
   });
 }
 
@@ -605,6 +613,42 @@ function updateNoteDegrees() {
   });
 }
 
+/**
+ * 指定したコード区間に含まれるピッチ（行インデックス）を取得
+ * @param {number} index コードインデックス
+ * @returns {number[]} ピッチインデックス配列
+ */
+function getChordPitchesForIndex(index) {
+  const { start, end } = getChordStepRange(index);
+  /** @type {Set<number>} */
+  const pitches = new Set();
+
+  for (let p = 0; p < TOTAL_PITCHES; p++) {
+    for (let s = start; s < end; s++) {
+      if (hasNoteAtStep(p, s)) {
+        pitches.add(p);
+        break;
+      }
+    }
+  }
+  return Array.from(pitches);
+}
+
+/**
+ * コードをまとめて鳴らす
+ * @param {number[]} pitches ピッチインデックス配列
+ * @param {number | undefined} when 再生時間（AudioContextの時間）。省略時はすぐ鳴らす
+ */
+function playChord(pitches, when) {
+  if (!pitches.length) return;
+  ensureAudioContext();
+  if (!audioCtx) return;
+  const t = when != null ? when : audioCtx.currentTime + 0.02;
+  pitches.forEach((p) => {
+    playNoteAtTime(p, t);
+  });
+}
+
 function clearCellSelection() {
   if (!pianorollEl) return;
   pianorollEl.querySelectorAll(".cell.selected").forEach((c) => c.classList.remove("selected"));
@@ -743,6 +787,17 @@ function renderChordTrack() {
     input.value = detectChordNameForIndex(index);
 
     segment.appendChild(input);
+
+    // マウスオーバーでコードプレビュー
+    let lastPreviewTime = 0;
+    segment.addEventListener("mouseenter", () => {
+      const now = performance.now();
+      // 連続してマウスオーバーされた場合の連打を防ぐ（100ms間隔）
+      if (now - lastPreviewTime < 100) return;
+      lastPreviewTime = now;
+      const pitches = getChordPitchesForIndex(index);
+      playChord(pitches, undefined);
+    });
 
     // 右端の境界をドラッグして長さ調整
     if (index < chords.length - 1) {
@@ -1385,6 +1440,9 @@ function startPlayback(fromStep) {
   const bpm = Number(bpmInput.value) || 120;
   const startStep = Math.max(0, Math.min(TOTAL_STEPS - 1, fromStep ?? 0));
 
+   // コード区間の開始ステップ一覧（コードを鳴らすタイミング用）
+  const chordStartSteps = chords.map((_, i) => getChordStepRange(i).start);
+
   isPlaying = true;
   playBtn.disabled = true;
   stopBtn.disabled = false;
@@ -1403,6 +1461,14 @@ function startPlayback(fromStep) {
       if (note) {
         playNoteAtTime(p, firstWhen);
       }
+    }
+  }
+  // オプションでコードも鳴らす
+  if (playChords) {
+    const chordIndex = chordStartSteps.findIndex((s) => s === startStep);
+    if (chordIndex !== -1) {
+      const chordPitches = getChordPitchesForIndex(chordIndex);
+      playChord(chordPitches, firstWhen);
     }
   }
   updatePlayhead(startStep);
@@ -1424,6 +1490,15 @@ function startPlayback(fromStep) {
           if (note) {
             playNoteAtTime(p, when);
           }
+        }
+      }
+
+      // コードも鳴らすオプションがONなら、コード区間の先頭ステップで和音を鳴らす
+      if (playChords) {
+        const chordIndex = chordStartSteps.findIndex((s) => s === stepInLoop);
+        if (chordIndex !== -1) {
+          const chordPitches = getChordPitchesForIndex(chordIndex);
+          playChord(chordPitches, when);
         }
       }
     }
