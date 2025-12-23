@@ -24,6 +24,9 @@ const stopBtn = document.getElementById("stop-btn");
 const exportBtn = document.getElementById("export-btn");
 const serializeBtn = document.getElementById("serialize-btn");
 const deserializeBtn = document.getElementById("deserialize-btn");
+const exportTextBtn = document.getElementById("export-text-btn");
+const importTextBtn = document.getElementById("import-text-btn");
+const fileInput = document.getElementById("file-input");
 const patternTextArea = document.getElementById("pattern-text");
 const pianorollEl = document.getElementById("pianoroll");
 const playheadEl = document.getElementById("playhead");
@@ -1661,7 +1664,7 @@ exportBtn.addEventListener("click", () => {
 function serializePattern() {
   // シンプルに JSON 文字列として出力（将来のロードも想定し、メタ情報も含める）
   const data = {
-    version: 1,
+    version: 2,
     stepsPerBar: STEPS_PER_BAR,
     bars: BARS,
     totalSteps: TOTAL_STEPS,
@@ -1670,6 +1673,8 @@ function serializePattern() {
     baseMidiNote: BASE_MIDI_NOTE,
     bpm: Number(bpmInput.value) || 120,
     pattern,
+    chords: chords.map(chord => ({ lengthSteps: chord.lengthSteps })),
+    displayMode: displayMode,
   };
   return JSON.stringify(data, null, 2);
 }
@@ -1683,9 +1688,12 @@ if (serializeBtn && patternTextArea) {
 }
 
 // --- テキストからパターンを復元 ---
-function applyPatternFromData(newPattern) {
+function applyPatternFromData(data) {
+  if (!data) return;
+  
+  // パターンデータの検証
+  const newPattern = data.pattern || data;
   if (!Array.isArray(newPattern)) return;
-  // 形だけざっくり検証
   if (newPattern.length !== TOTAL_PITCHES) return;
 
   // 内部データを更新
@@ -1718,8 +1726,28 @@ function applyPatternFromData(newPattern) {
     }
   }
 
+  // コードトラックを復元（version 2以降）
+  if (data.chords && Array.isArray(data.chords)) {
+    chords = data.chords.map(chord => ({ lengthSteps: chord.lengthSteps || STEPS_PER_BAR }));
+    // 合計ステップ数がTOTAL_STEPSになるように調整
+    const total = chords.reduce((sum, chord) => sum + chord.lengthSteps, 0);
+    if (total !== TOTAL_STEPS && chords.length > 0) {
+      const diff = TOTAL_STEPS - total;
+      chords[chords.length - 1].lengthSteps += diff;
+    }
+  }
+
+  // 表示モードを復元（version 2以降）
+  if (data.displayMode && (data.displayMode === DISPLAY_MODE_CHORD || data.displayMode === DISPLAY_MODE_BERKLEE)) {
+    displayMode = data.displayMode;
+    if (displayModeSelect) {
+      displayModeSelect.value = displayMode;
+    }
+  }
+
   // UI を反映
   renderPianoRoll();
+  renderChordTrack();
 }
 
 if (deserializeBtn && patternTextArea) {
@@ -1731,11 +1759,20 @@ if (deserializeBtn && patternTextArea) {
         return;
       }
       const data = JSON.parse(text);
-      if (!data || !Array.isArray(data.pattern)) {
+      
+      // バージョン1（古い形式）との互換性を保つ
+      if (Array.isArray(data)) {
+        // 古い形式：配列が直接渡された場合
+        applyPatternFromData({ pattern: data });
+      } else if (data.pattern && Array.isArray(data.pattern)) {
+        // 新しい形式：オブジェクトにpatternフィールドがある場合
+        applyPatternFromData(data);
+      } else {
         alert("pattern フィールドを持つJSONではありません。");
         return;
       }
-      applyPatternFromData(data.pattern);
+      
+      // BPMを復元
       if (data.bpm) {
         bpmInput.value = String(data.bpm);
       }
@@ -1743,6 +1780,84 @@ if (deserializeBtn && patternTextArea) {
       console.error(e);
       alert("JSONのパースに失敗しました。フォーマットを確認してください。");
     }
+  });
+}
+
+// --- テキスト書き出し（ファイル保存） ---
+if (exportTextBtn) {
+  exportTextBtn.addEventListener("click", () => {
+    const jsonText = serializePattern();
+    const blob = new Blob([jsonText], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    
+    // ファイル名を生成（先頭ノート名を使用、なければデフォルト名）
+    const firstNoteLabel = getFirstNoteLabel();
+    const safeLabel = firstNoteLabel ? firstNoteLabel.replace(/[^a-zA-Z0-9_#-]/g, "_") : "tiny-sequencer";
+    const filename = `${safeLabel}.json`;
+    
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  });
+}
+
+// --- テキスト読み出し（ファイル読み込み） ---
+if (importTextBtn && fileInput) {
+  importTextBtn.addEventListener("click", () => {
+    fileInput.click();
+  });
+  
+  fileInput.addEventListener("change", (ev) => {
+    const file = ev.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const text = e.target.result;
+        const data = JSON.parse(text);
+        
+        // バージョン1（古い形式）との互換性を保つ
+        if (Array.isArray(data)) {
+          // 古い形式：配列が直接渡された場合
+          applyPatternFromData({ pattern: data });
+        } else if (data.pattern && Array.isArray(data.pattern)) {
+          // 新しい形式：オブジェクトにpatternフィールドがある場合
+          applyPatternFromData(data);
+        } else {
+          alert("pattern フィールドを持つJSONではありません。");
+          return;
+        }
+        
+        // BPMを復元
+        if (data.bpm) {
+          bpmInput.value = String(data.bpm);
+        }
+        
+        // テキストエリアにも表示
+        if (patternTextArea) {
+          patternTextArea.value = text;
+        }
+        
+        alert("ファイルを読み込みました。");
+      } catch (err) {
+        console.error(err);
+        alert("ファイルの読み込みに失敗しました。JSONフォーマットを確認してください。");
+      }
+    };
+    
+    reader.onerror = () => {
+      alert("ファイルの読み込み中にエラーが発生しました。");
+    };
+    
+    reader.readAsText(file);
+    
+    // ファイル入力をリセット（同じファイルを再度選択できるように）
+    ev.target.value = "";
   });
 }
 
