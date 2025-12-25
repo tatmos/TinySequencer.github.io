@@ -92,44 +92,200 @@ function getChordStepRange(index) {
 }
 
 function getFirstNoteLabel() {
-  // 最初の8音（ユニークなピッチクラス）までを含めて返す。なければ空文字。
-  /** @type {Set<string>} */
-  const pitchClassNames = new Set();
-  const MAX_NOTES = 8;
-  
-  // ステップ0から順に走査して、新しいピッチクラスが見つかったら追加（最大8個まで）
-  for (let s = 0; s < TOTAL_STEPS && pitchClassNames.size < MAX_NOTES; s++) {
-    for (let p = 0; p < TOTAL_PITCHES && pitchClassNames.size < MAX_NOTES; p++) {
-      if (hasNoteAtStep(p, s)) {
-        const midi = BASE_MIDI_NOTE - 12 + p;
-        const label = midiToLabel(midi);
-        // オクターブ番号を除いてピッチクラス名だけを取得（例: "C4" → "C", "C#4" → "C#"）
-        const pitchClass = label.replace(/\d+$/, "");
-        if (!pitchClassNames.has(pitchClass)) {
-          pitchClassNames.add(pitchClass);
-          // 8個集まったら終了
-          if (pitchClassNames.size >= MAX_NOTES) {
-            break;
-          }
-        }
+  // シーケンス先頭から順にノート先頭を拾い、現在の表示モードに応じた
+  // 「ノート表示名」を出現順に "-" で連結した文字列を返す。
+  // 結果は 48 文字以内に制限する。
+
+  // コード依存モード用に、ステップごとのコード解析結果をあらかじめ作っておく
+  /** @type {(number | null)[]} */
+  const stepRoot = new Array(TOTAL_STEPS).fill(null);
+  /** @type {(Set<number> | null)[]} */
+  const stepBaseSet = new Array(TOTAL_STEPS).fill(null);
+
+  if (displayMode === DISPLAY_MODE_CHORD || displayMode === DISPLAY_MODE_BERKLEE) {
+    for (let i = 0; i < chords.length; i++) {
+      const { start, end } = getChordStepRange(i);
+      const pcs = getPitchClassesForRange(start, end);
+      const analysis = detectChordCore(pcs);
+      if (analysis.rootPc === null) continue;
+      for (let s = start; s < end && s < TOTAL_STEPS; s++) {
+        stepRoot[s] = analysis.rootPc;
+        stepBaseSet[s] = analysis.basePitchClasses;
       }
     }
   }
-  
-  if (pitchClassNames.size === 0) {
-    return "";
+
+  /** @type {string} */
+  let result = "";
+
+  for (let step = 0; step < TOTAL_STEPS; step++) {
+    for (let p = 0; p < TOTAL_PITCHES; p++) {
+      const notes = pattern[p];
+      if (!notes || !notes.length) continue;
+      const note = notes.find((n) => n.startStep === step);
+      if (!note) continue;
+
+      const midi = BASE_MIDI_NOTE - 12 + p;
+      const pc = midi % 12;
+
+      /** @type {string | null} */
+      let label = null;
+
+      if (displayMode === DISPLAY_MODE_ABSOLUTE) {
+        // 絶対音表示（C4, D#5 など）
+        label = midiToLabel(midi);
+      } else if (displayMode === DISPLAY_MODE_BERKLEE_ABSOLUTE) {
+        // バークリー音階絶対表示（C＝do 固定）
+        switch (pc) {
+          case 0:
+            label = "do";
+            break;
+          case 1:
+            label = "di";
+            break;
+          case 2:
+            label = "re";
+            break;
+          case 3:
+            label = "me";
+            break;
+          case 4:
+            label = "mi";
+            break;
+          case 5:
+            label = "fa";
+            break;
+          case 6:
+            label = "fi";
+            break;
+          case 7:
+            label = "so";
+            break;
+          case 8:
+            label = "si";
+            break;
+          case 9:
+            label = "la";
+            break;
+          case 10:
+            label = "te";
+            break;
+          case 11:
+            label = "ti";
+            break;
+          default:
+            break;
+        }
+      } else {
+        const rootPc = stepRoot[step];
+        const baseSet = stepBaseSet[step];
+        if (rootPc == null || !baseSet) continue;
+        const rel = (pc - rootPc + 12) % 12;
+
+        if (displayMode === DISPLAY_MODE_CHORD) {
+          // コードの度数表示モード
+          switch (rel) {
+            case 0:
+              label = "1";
+              break;
+            case 1:
+              label = "b2";
+              break;
+            case 3:
+              label = "b3";
+              break;
+            case 4:
+              label = "3";
+              break;
+            case 7:
+              label = "5";
+              break;
+            case 6:
+              label = "b5";
+              break;
+            case 8:
+              label = "#5";
+              break;
+            case 10:
+              label = "b7";
+              break;
+            case 11:
+              label = "7";
+              break;
+            case 2:
+              label = "9";
+              break;
+            case 5:
+              label = "11";
+              break;
+            case 9:
+              label = "13";
+              break;
+            default:
+              break;
+          }
+        } else if (displayMode === DISPLAY_MODE_BERKLEE) {
+          // バークリー音階表示モード（相対solfege）
+          switch (rel) {
+            case 0:
+              label = "do";
+              break;
+            case 1:
+              label = "di";
+              break;
+            case 2:
+              label = "re";
+              break;
+            case 3:
+              label = "me";
+              break;
+            case 4:
+              label = "mi";
+              break;
+            case 5:
+              label = "fa";
+              break;
+            case 6:
+              label = "fi";
+              break;
+            case 7:
+              label = "so";
+              break;
+            case 8:
+              label = "si";
+              break;
+            case 9:
+              label = "la";
+              break;
+            case 10:
+              label = "te";
+              break;
+            case 11:
+              label = "ti";
+              break;
+            default:
+              break;
+          }
+        }
+      }
+
+      if (!label) continue;
+
+      const sep = result === "" ? "" : "-";
+      const candidate = result + sep + label;
+      if (candidate.length > 48) {
+        // まだ何も追加していない場合は、先頭ラベルだけを切り詰めて返す
+        if (result === "") {
+          return label.slice(0, 48);
+        }
+        return result;
+      }
+
+      result = candidate;
+    }
   }
-  
-  // ピッチクラス名をソート（C, C#, D, D#, E, F, F#, G, G#, A, A#, B の順）
-  const sorted = Array.from(pitchClassNames).sort((a, b) => {
-    const order = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-    const idxA = order.indexOf(a);
-    const idxB = order.indexOf(b);
-    return idxA - idxB;
-  });
-  
-  // ハイフンで結合（例: "C-E-G"）
-  return sorted.join("-");
+
+  return result;
 }
 
 function clonePattern(src) {
@@ -2006,7 +2162,6 @@ if (importTextBtn && fileInput) {
           patternTextArea.value = text;
         }
         
-        alert("ファイルを読み込みました。");
       } catch (err) {
         console.error(err);
         alert("ファイルの読み込みに失敗しました。JSONフォーマットを確認してください。");
